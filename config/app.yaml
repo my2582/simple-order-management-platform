@@ -1,0 +1,19 @@
+app:
+  name: "Market Data Platform"
+  version: "1.0.0"
+  
+  directories:
+    project_root: "."
+    config_dir: "./config"
+    data_dir: "./data"
+    output_dir: "./data/output"
+  
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  ib:
+    host: "127.0.0.1"
+    port: 4001
+    client_id: 1
+    timeout: 10

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "market-data-platform"
+version = "1.0.0"
+description = "Simple Order Management Platform with multi-asset market data gathering capablities for futures, stocks, and ETFs from Interactive Brokers"
+authors = [
+    {name = "Minsu Yeom", email = "minsu.yeom@arkifinance.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "ib-insync>=0.9.86",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "typer[all]>=0.9.0",
+    "rich>=13.0.0",
+    "tenacity>=8.2.0",
+    "pyarrow>=19.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+market-data = "market_data_platform.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["market_data_platform"]

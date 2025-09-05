@@ -1,0 +1,29 @@
+# Master Universe Configuration
+master_universes:
+  futures:
+    file_path: "./config/universes/futures_master_universe.xlsx"
+    update_frequency: "daily"
+    last_updated: null
+    
+  stocks:
+    file_path: "./config/universes/stocks_master_universe.xlsx" 
+    update_frequency: "daily"
+    last_updated: null
+    
+  etfs:
+    file_path: "./config/universes/etfs_master_universe.xlsx"
+    update_frequency: "daily" 
+    last_updated: null
+
+# Centralized data storage
+raw_data_storage:
+  base_path: "./data/master"
+  file_format: "parquet"  # parquet, excel, csv
+  compression: "snappy"
+  retention_days: 730
+  
+# Strategy data views  
+strategy_views:
+  base_path: "./data/strategies"
+  export_formats: ["parquet", "excel"]
+  auto_sync: true

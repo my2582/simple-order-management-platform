@@ -1,0 +1,78 @@
+strategies:
+  arki_macro_mini:
+    name: "Arki Macro Mini Strategy"
+    description: "A rule-driven global multi-asset strategy adapting to changing macro regimes"
+    versions:
+      v1.0:
+        data_paths:
+          futures_universe: "./data/raw/strategies/arki_macro_mini/v1.0/latest/futures_universe.xlsx"
+        data_frequency: "daily"
+        instrument_settings:
+          futures:
+            duration: "2 Y"
+            bar_size: "1 day"
+            use_rth: true
+            back_adjusted: true
+
+  verified_test:
+    name: "Verified Symbols Test Strategy"
+    description: "Test with confirmed working IBKR symbols"
+    versions:
+      v1.0:
+        data_paths:
+          futures_universe: "./data/raw/strategies/arki_macro_mini/v1.0/latest/verified_test_universe.xlsx"
+        data_frequency: "daily"
+        instrument_settings:
+          futures:
+            duration: "1 Y"
+            bar_size: "1 day"
+            use_rth: true
+            back_adjusted: true
+
+defaults:
+  download_settings:
+    general:
+      bar_size: "1 day"
+      use_rth: true
+      max_retries: 3
+      retry_delay: 2.0
+      validate_instruments: true
+    futures:
+      duration: "2 Y"
+      back_adjusted: true
+
+corrections:
+  futures:
+    exchange_overrides:
+      ES: "CME"
+      MES: "CME"
+      M2K: "CME"
+      CL: "NYMEX"
+      GC: "COMEX"
+      NG: "NYMEX"
+      ESTX50: "EUREX"
+      Z: "ICEEU"
+      R: "ICEEU"
+      N225: "OSE.JPN"
+      N225MC: "OSE.JPN"
+      JGB: "OSE.JPN"
+      MJ: "OSE.JPN"
+      SGB: "SGX"
+      ZN: "CBOT"
+      MTN: "CBOT"
+      MGC: "COMEX"
+      1OZ: "COMEX"
+      MHI: "HKFE"
+    currency_corrections:
+      ESTX50: "EUR"
+      Z: "GBP"
+      R: "GBP"
+      N225: "JPY"
+      N225MC: "JPY"
+      JGB: "JPY"
+      MJ: "JPY"
+      SGB: "JPY"
+      MHI: "HKD"
+    symbol_overrides:
+      MCH: "MCH.HK"
+      FMEN: "M1EF"

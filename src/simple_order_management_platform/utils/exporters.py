@@ -230,12 +230,8 @@ def export_portfolio_snapshots(
         for snapshot in multi_portfolio.snapshots:
             account_summary = snapshot.get_positions_summary()
             
-            if not account_summary['positions']:
-                logger.warning(f"No positions found for account {snapshot.account_id}")
-                continue
-            
-            # Create positions dataframe
-            positions_df = pd.DataFrame(account_summary['positions'])
+            # Create sheet even if no positions (show account info)
+            create_account_sheet = True
             
             # Create sheet name
             sheet_name = f"Account_{snapshot.account_id}"
@@ -252,17 +248,47 @@ def export_portfolio_snapshots(
                     ['Cash Percentage', f"{account_summary['cash_percentage']:.2f}%"],
                     ['Number of Positions', len(account_summary['positions'])],
                     ['', ''],
-                    ['', '']
                 ]
                 
+                # Add account summary information if available
+                if snapshot.account_summary:
+                    summary = snapshot.account_summary
+                    metadata_rows.extend([
+                        ['Account Summary Details', ''],
+                        ['Net Liquidation', f"${float(summary.net_liquidation or 0):,.2f}"],
+                        ['Total Cash Value', f"${float(summary.total_cash_value or 0):,.2f}"],
+                        ['Buying Power', f"${float(summary.buying_power or 0):,.2f}"],
+                        ['Unrealized PnL', f"${float(summary.unrealized_pnl or 0):,.2f}"],
+                        ['', ''],
+                    ])
+                
+                metadata_rows.extend([['', ''], ['Position Details', '']])
                 metadata_df = pd.DataFrame(metadata_rows, columns=['Field', 'Value'])
                 
                 # Write metadata
                 metadata_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=0)
                 
-                # Write positions data
-                start_row = len(metadata_df) + 2
-                positions_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=start_row)
+                # Write positions data if any
+                start_row = len(metadata_df) + 1
+                if account_summary['positions']:
+                    positions_df = pd.DataFrame(account_summary['positions'])
+                    positions_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=start_row)
+                else:
+                    # Create empty positions template
+                    empty_positions = pd.DataFrame([{
+                        'Symbol': 'No positions found',
+                        'Exchange': '',
+                        'Currency': '',
+                        'SecType': '',
+                        'Position': 0,
+                        'Market_Price': 0,
+                        'Market_Value': 0,
+                        'Weight_Pct': 0,
+                        'Avg_Cost': 0,
+                        'Unrealized_PnL': 0,
+                        'Local_Symbol': ''
+                    }])
+                    empty_positions.to_excel(writer, sheet_name=sheet_name, index=False, startrow=start_row)
                 
                 logger.debug(f"Exported account {snapshot.account_id} to sheet '{sheet_name}'")
                 

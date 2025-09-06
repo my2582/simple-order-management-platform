@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
-from ib_insync import IB, PortfolioItem, AccountValue
+from ib_insync import IB
 
 from ..models.portfolio import (
     Position, AccountSummary, PortfolioSnapshot, MultiAccountPortfolio
@@ -49,14 +49,14 @@ class PortfolioService:
             logger.error(f"Error retrieving managed accounts: {e}")
             raise SimpleOrderManagementPlatformError(f"Failed to get accounts: {e}")
     
-    def get_account_portfolio(self, account_id: str) -> List[PortfolioItem]:
+    def get_account_portfolio(self, account_id: str) -> List:
         """Get portfolio for specific account.
         
         Args:
             account_id: Account ID to get portfolio for
             
         Returns:
-            List of PortfolioItem objects from ib_insync
+            List of Position objects from ib_insync
             
         Raises:
             SimpleOrderManagementPlatformError: If unable to retrieve portfolio
@@ -64,14 +64,15 @@ class PortfolioService:
         try:
             logger.info(f"Requesting portfolio for account: {account_id}")
             
-            # Request portfolio positions
-            portfolio = self.ib.portfolio(account_id)
+            # Get all positions and filter by account
+            all_positions = self.ib.positions()
+            account_positions = [pos for pos in all_positions if pos.account == account_id]
             
             # Wait for data to be received
             self.ib.sleep(1)
             
-            logger.info(f"Retrieved {len(portfolio)} positions for account {account_id}")
-            return portfolio
+            logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
+            return account_positions
             
         except Exception as e:
             logger.error(f"Error retrieving portfolio for account {account_id}: {e}")
@@ -102,7 +103,7 @@ class PortfolioService:
             ]
             
             # Request account summary
-            summary_items = self.ib.accountSummary(account_id, tags=','.join(tags))
+            summary_items = self.ib.accountSummary(account_id)
             
             # Wait for data
             self.ib.sleep(1)
@@ -122,11 +123,11 @@ class PortfolioService:
                 f"Failed to get account summary for {account_id}: {e}"
             )
     
-    def _convert_ib_portfolio_to_position(self, ib_position: PortfolioItem, account_id: str) -> Position:
-        """Convert ib_insync PortfolioItem object to Position model.
+    def _convert_ib_portfolio_to_position(self, ib_position, account_id: str) -> Position:
+        """Convert ib_insync Position object to Position model.
         
         Args:
-            ib_position: ib_insync PortfolioItem object
+            ib_position: ib_insync Position object
             account_id: Account ID for this position
             
         Returns:
@@ -135,10 +136,27 @@ class PortfolioService:
         try:
             contract = ib_position.contract
             
-            # Handle market value calculation
+            # Get market price - need to request it separately
+            market_price = None
             market_value = None
-            if ib_position.marketPrice and ib_position.position:
-                # For futures, multiply by multiplier if available
+            
+            # Request market price for the contract
+            try:
+                self.ib.reqMktData(contract, '', False, False)
+                self.ib.sleep(2)  # Wait for market data
+                
+                ticker = self.ib.ticker(contract)
+                if ticker and (ticker.marketPrice() or ticker.last):
+                    market_price = ticker.marketPrice() or ticker.last
+                
+                # Cancel market data to avoid subscription fees
+                self.ib.cancelMktData(contract)
+                
+            except Exception as e:
+                logger.warning(f"Could not get market price for {contract.symbol}: {e}")
+                
+            # Calculate market value
+            if market_price and ib_position.position:
                 multiplier = getattr(contract, 'multiplier', 1)
                 if multiplier and multiplier != '':
                     try:
@@ -148,7 +166,7 @@ class PortfolioService:
                 else:
                     multiplier = 1
                     
-                market_value = Decimal(str(ib_position.marketPrice)) * Decimal(str(ib_position.position)) * Decimal(str(multiplier))
+                market_value = Decimal(str(market_price)) * Decimal(str(ib_position.position)) * Decimal(str(multiplier))
             
             position = Position(
                 account_id=account_id,
@@ -158,11 +176,11 @@ class PortfolioService:
                 currency=contract.currency or 'USD',
                 sec_type=contract.secType or 'STK',
                 position=Decimal(str(ib_position.position)),
-                market_price=Decimal(str(ib_position.marketPrice)) if ib_position.marketPrice else None,
+                market_price=Decimal(str(market_price)) if market_price else None,
                 market_value=market_value,
-                avg_cost=Decimal(str(ib_position.averageCost)) if ib_position.averageCost else None,
-                unrealized_pnl=Decimal(str(ib_position.unrealizedPNL)) if ib_position.unrealizedPNL else None,
-                realized_pnl=Decimal(str(ib_position.realizedPNL)) if ib_position.realizedPNL else None,
+                avg_cost=Decimal(str(ib_position.avgCost)) if ib_position.avgCost else None,
+                unrealized_pnl=None,  # Position object doesn't have PnL info
+                realized_pnl=None,
                 local_symbol=getattr(contract, 'localSymbol', None),
                 multiplier=int(getattr(contract, 'multiplier', 1)) if getattr(contract, 'multiplier', '') != '' else None,
                 last_trade_date=getattr(contract, 'lastTradeDateOrContractMonth', None),

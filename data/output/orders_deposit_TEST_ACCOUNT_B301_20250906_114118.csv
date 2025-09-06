@@ -1,0 +1,4 @@
+Account_ID,Symbol,Action,Quantity,Amount,Order_Type,Notes,Timestamp
+TEST_ACCOUNT,SPMO,BUY,,3334.0,MKT,New deposit allocation to B301 (33.34% target weight),2025-09-06 11:41:18
+TEST_ACCOUNT,SMH,BUY,,3333.0,MKT,New deposit allocation to B301 (33.33% target weight),2025-09-06 11:41:18
+TEST_ACCOUNT,IAU,BUY,,3333.0,MKT,New deposit allocation to B301 (33.33% target weight),2025-09-06 11:41:18

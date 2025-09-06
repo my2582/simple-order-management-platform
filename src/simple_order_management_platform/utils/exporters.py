@@ -3,11 +3,11 @@
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 import logging
 
 from ..config.loader import config_loader
-from ..utils.exceptions import MarketDataPlatformError
+from ..utils.exceptions import SimpleOrderManagementPlatformError
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def export_multi_asset_results(
     """
     
     if not results_by_type:
-        raise MarketDataPlatformError("No results to export")
+        raise SimpleOrderManagementPlatformError("No results to export")
     
     # Generate output filename if not provided
     if output_filename is None:
@@ -177,3 +177,160 @@ def _create_sheet_name(symbol: str, instrument_type: str) -> str:
             sheet_name = symbol[:31]
     
     return sheet_name
+
+
+def export_portfolio_snapshots(
+    multi_portfolio: 'MultiAccountPortfolio',
+    output_filename: Optional[str] = None,
+    include_summary: bool = True
+) -> Path:
+    """
+    Export portfolio snapshots to Excel file.
+    
+    Args:
+        multi_portfolio: MultiAccountPortfolio object with snapshots
+        output_filename: Custom output filename (optional)
+        include_summary: Whether to include summary sheet
+        
+    Returns:
+        Path to the exported Excel file
+    """
+    from ..models.portfolio import MultiAccountPortfolio
+    
+    if not multi_portfolio.snapshots:
+        raise SimpleOrderManagementPlatformError("No portfolio snapshots to export")
+    
+    # Generate output filename if not provided
+    if output_filename is None:
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_filename = f"portfolio_positions_{timestamp}.xlsx"
+    
+    # Ensure .xlsx extension
+    if not output_filename.endswith('.xlsx'):
+        output_filename += '.xlsx'
+    
+    # Get output directory
+    app_config = config_loader.load_app_config()
+    output_dir = Path(app_config.app.get("directories", {}).get("output_dir", "./data/output"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    output_path = output_dir / output_filename
+    
+    logger.info(f"Exporting portfolio snapshots to: {output_path}")
+    
+    # Create Excel file with multiple sheets
+    with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        
+        # Create summary sheet if requested
+        if include_summary:
+            summary_df = _create_portfolio_summary_sheet(multi_portfolio)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        
+        # Create individual sheets for each account
+        for snapshot in multi_portfolio.snapshots:
+            account_summary = snapshot.get_positions_summary()
+            
+            if not account_summary['positions']:
+                logger.warning(f"No positions found for account {snapshot.account_id}")
+                continue
+            
+            # Create positions dataframe
+            positions_df = pd.DataFrame(account_summary['positions'])
+            
+            # Create sheet name
+            sheet_name = f"Account_{snapshot.account_id}"
+            if len(sheet_name) > 31:  # Excel sheet name limit
+                sheet_name = f"Acc_{snapshot.account_id[:25]}"
+            
+            try:
+                # Create account metadata
+                metadata_rows = [
+                    ['Account Information', ''],
+                    ['Account ID', snapshot.account_id],
+                    ['Timestamp', snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')],
+                    ['Total Portfolio Value', f"${account_summary['total_value']:,.2f}"],
+                    ['Cash Percentage', f"{account_summary['cash_percentage']:.2f}%"],
+                    ['Number of Positions', len(account_summary['positions'])],
+                    ['', ''],
+                    ['', '']
+                ]
+                
+                metadata_df = pd.DataFrame(metadata_rows, columns=['Field', 'Value'])
+                
+                # Write metadata
+                metadata_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=0)
+                
+                # Write positions data
+                start_row = len(metadata_df) + 2
+                positions_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=start_row)
+                
+                logger.debug(f"Exported account {snapshot.account_id} to sheet '{sheet_name}'")
+                
+            except Exception as e:
+                logger.error(f"Failed to export account {snapshot.account_id} to Excel: {e}")
+                continue
+    
+    # Log export summary
+    total_accounts = len(multi_portfolio.snapshots)
+    total_positions = sum(len(s.positions) for s in multi_portfolio.snapshots if s.positions)
+    
+    logger.info(f"Portfolio export completed: {total_accounts} accounts, "
+               f"{total_positions} total positions exported to {output_path.name}")
+    
+    return output_path
+
+
+def _create_portfolio_summary_sheet(multi_portfolio: 'MultiAccountPortfolio') -> pd.DataFrame:
+    """Create summary sheet for portfolio snapshots."""
+    
+    summary_data = []
+    
+    # Add header information
+    combined_summary = multi_portfolio.get_combined_summary()
+    
+    summary_data.extend([
+        ['Portfolio Summary', '', '', '', '', ''],
+        ['Export Time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'), '', '', '', ''],
+        ['Total Accounts', combined_summary['total_accounts'], '', '', '', ''],
+        ['Total Portfolio Value', f"${combined_summary['total_portfolio_value']:,.2f}", '', '', '', ''],
+        ['Total Positions', combined_summary['total_positions'], '', '', '', ''],
+        ['', '', '', '', '', ''],
+        ['Account Details', '', '', '', '', ''],
+        ['Account ID', 'Positions', 'Total Value', 'Cash %', 'Largest Position', 'Top Holdings']
+    ])
+    
+    # Add account-by-account details
+    for snapshot in multi_portfolio.snapshots:
+        account_summary = snapshot.get_positions_summary()
+        
+        # Find largest position by value
+        largest_position = ""
+        top_holdings = ""
+        
+        if account_summary['positions']:
+            positions_sorted = sorted(
+                account_summary['positions'], 
+                key=lambda x: abs(x.get('Market_Value', 0)), 
+                reverse=True
+            )
+            
+            if positions_sorted:
+                largest_position = f"{positions_sorted[0]['Symbol']} (${abs(positions_sorted[0].get('Market_Value', 0)):,.0f})"
+                
+                # Top 3 holdings
+                top_3 = positions_sorted[:3]
+                top_holdings = ", ".join([
+                    f"{pos['Symbol']} ({pos['Weight_Pct']:.1f}%)"
+                    for pos in top_3
+                ])
+        
+        summary_data.append([
+            snapshot.account_id,
+            len(account_summary['positions']),
+            f"${account_summary['total_value']:,.2f}",
+            f"{account_summary['cash_percentage']:.1f}%",
+            largest_position,
+            top_holdings[:50] + "..." if len(top_holdings) > 50 else top_holdings
+        ])
+    
+    return pd.DataFrame(summary_data)

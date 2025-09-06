@@ -2,6 +2,8 @@
 
 import logging
 from typing import List, Optional
+from decimal import Decimal
+from datetime import datetime
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -11,8 +13,11 @@ from .core.connector import IBConnector
 from .core.orchestrator import DataOrchestrator
 from .providers.ib import IBProvider
 from .models.base import InstrumentType
-from .utils.exporters import export_multi_asset_results
+from .utils.exporters import export_multi_asset_results, export_portfolio_snapshots
 from .utils.exceptions import SimpleOrderManagementPlatformError, ConnectionError
+from .services.portfolio_service import PortfolioService
+from .services.order_service import OrderService
+from .models.model_portfolio import ModelPortfolioManager
 
 app = typer.Typer(
     name="simple-order",
@@ -312,4 +317,298 @@ def list_master():
         
     except Exception as e:
         console.print(f"[red]❌ Status check failed: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def download_positions(
+    accounts: Optional[List[str]] = typer.Option(
+        None, "--accounts", "-a",
+        help="Specific account IDs to download (comma-separated). If not provided, downloads all accounts."
+    ),
+    output_filename: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output Excel filename. Default: auto-generated with timestamp"
+    ),
+    # IB connection overrides
+    ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
+    ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
+    ib_client_id: Optional[int] = typer.Option(None, "--ib-client-id", help="IB client ID override"),
+):
+    """Download portfolio positions for all or specified accounts."""
+    
+    console.print("[bold blue]📊 Starting portfolio positions download[/bold blue]")
+
+    try:
+        # Load app configuration
+        app_config = config_loader.load_app_config()
+        
+        # Get IB connection settings with overrides
+        ib_settings = app_config.ib_settings
+        host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
+        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+
+        # Execute download with IB connection
+        with IBConnector(host=host, port=port, client_id=client_id) as connector:
+            provider = IBProvider(connector)
+            portfolio_service = PortfolioService(provider)
+
+            with console.status("[bold green]Downloading portfolio positions..."):
+                # Parse account list if provided
+                account_list = None
+                if accounts:
+                    if len(accounts) == 1 and ',' in accounts[0]:
+                        # Handle comma-separated string
+                        account_list = [acc.strip() for acc in accounts[0].split(',')]
+                    else:
+                        account_list = accounts
+                
+                multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+            
+            if not multi_portfolio.snapshots:
+                console.print("[yellow]⚠️ No portfolio data downloaded[/yellow]")
+                raise typer.Exit(0)
+
+            # Export results to Excel
+            output_path = export_portfolio_snapshots(
+                multi_portfolio=multi_portfolio,
+                output_filename=output_filename,
+                include_summary=True
+            )
+            
+            # Show summary
+            combined_summary = multi_portfolio.get_combined_summary()
+            
+            console.print(f"[green]✅ Portfolio download completed:[/green]")
+            console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
+            console.print(f"  • Total positions: {combined_summary['total_positions']}")
+            console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
+            console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+            
+            # Show per-account summary
+            console.print(f"\n[bold blue]📋 Per-Account Summary:[/bold blue]")
+            for snapshot in multi_portfolio.snapshots:
+                account_summary = snapshot.get_positions_summary()
+                console.print(f"  • Account {snapshot.account_id}: "
+                             f"{len(account_summary['positions'])} positions, "
+                             f"${account_summary['total_value']:,.2f} total value, "
+                             f"{account_summary['cash_percentage']:.1f}% cash")
+
+    except ConnectionError as e:
+        console.print(f"[red]❌ Connection Error: {e}[/red]")
+        raise typer.Exit(1)
+    except SimpleOrderManagementPlatformError as e:
+        console.print(f"[red]❌ Platform Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.exception("Unexpected error during positions download")
+        raise typer.Exit(1)
+
+
+@app.command()
+def generate_orders(
+    account_id: str = typer.Argument(..., help="Account ID to generate orders for"),
+    portfolio_id: str = typer.Argument(..., help="Model portfolio ID (e.g., B301 for GTAA)"),
+    order_type: str = typer.Option(
+        "rebalance", "--type", "-t",
+        help="Order type: rebalance, deposit, withdrawal"
+    ),
+    amount: Optional[float] = typer.Option(
+        None, "--amount", "-a",
+        help="Amount for deposit/withdrawal or target amount for rebalancing"
+    ),
+    proportional: bool = typer.Option(
+        True, "--proportional/--largest-first",
+        help="For withdrawal: sell proportionally (default) or largest positions first"
+    ),
+    min_trade_amount: float = typer.Option(
+        100.0, "--min-trade",
+        help="Minimum trade amount for rebalancing (default: $100)"
+    ),
+    model_portfolio_path: Optional[str] = typer.Option(
+        None, "--mp-path",
+        help="Path to MP_Master.csv file. Default: ./data/model_portfolios/MP_Master.csv"
+    ),
+    output_filename: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output CSV filename for orders. Default: auto-generated"
+    ),
+    # IB connection parameters (only needed for rebalancing)
+    ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
+    ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
+    ib_client_id: Optional[int] = typer.Option(None, "--ib-client-id", help="IB client ID override"),
+):
+    """Generate trading orders based on model portfolio."""
+    
+    console.print(f"[bold blue]📝 Generating {order_type} orders for account {account_id}[/bold blue]")
+
+    try:
+        # Validate order type
+        if order_type not in ['rebalance', 'deposit', 'withdrawal']:
+            console.print(f"[red]❌ Invalid order type: {order_type}. Must be: rebalance, deposit, withdrawal[/red]")
+            raise typer.Exit(1)
+        
+        # Validate required amount parameter
+        if amount is None:
+            console.print(f"[red]❌ Amount parameter is required for {order_type} orders[/red]")
+            raise typer.Exit(1)
+        
+        amount_decimal = Decimal(str(amount))
+        
+        # Load model portfolios
+        mp_path = model_portfolio_path or "./data/model_portfolios/MP_Master.csv"
+        try:
+            order_service = OrderService.load_model_portfolios_from_csv(mp_path)
+            console.print(f"[green]✓[/green] Loaded model portfolios from: {mp_path}")
+        except Exception as e:
+            console.print(f"[red]❌ Failed to load model portfolios: {e}[/red]")
+            raise typer.Exit(1)
+        
+        # Validate portfolio exists
+        if portfolio_id not in order_service.model_portfolio_manager.list_portfolio_ids():
+            available = order_service.model_portfolio_manager.list_portfolio_ids()
+            console.print(f"[red]❌ Portfolio ID '{portfolio_id}' not found. Available: {', '.join(available)}[/red]")
+            raise typer.Exit(1)
+        
+        order_batch = None
+        
+        if order_type == "deposit":
+            # Generate deposit orders (no IB connection needed)
+            console.print(f"Generating deposit orders for ${amount_decimal:,.2f}")
+            order_batch = order_service.generate_deposit_orders(
+                account_id=account_id,
+                portfolio_id=portfolio_id,
+                deposit_amount=amount_decimal
+            )
+            
+        elif order_type == "withdrawal" or order_type == "rebalance":
+            # Need IB connection to get current positions
+            app_config = config_loader.load_app_config()
+            ib_settings = app_config.ib_settings
+            host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
+            port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+            client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+
+            with IBConnector(host=host, port=port, client_id=client_id) as connector:
+                provider = IBProvider(connector)
+                portfolio_service = PortfolioService(provider)
+
+                with console.status("[bold green]Getting current portfolio positions..."):
+                    current_snapshot = portfolio_service.download_account_portfolio(account_id)
+                
+                console.print(f"[green]✓[/green] Retrieved current positions: {len(current_snapshot.positions)} positions")
+                
+                if order_type == "withdrawal":
+                    console.print(f"Generating withdrawal orders for ${amount_decimal:,.2f}")
+                    order_batch = order_service.generate_withdrawal_orders(
+                        account_id=account_id,
+                        current_snapshot=current_snapshot,
+                        withdrawal_amount=amount_decimal,
+                        proportional=proportional
+                    )
+                    
+                elif order_type == "rebalance":
+                    console.print(f"Generating rebalancing orders to ${amount_decimal:,.2f} target")
+                    order_batch = order_service.generate_rebalancing_orders(
+                        account_id=account_id,
+                        portfolio_id=portfolio_id,
+                        current_snapshot=current_snapshot,
+                        target_amount=amount_decimal,
+                        min_trade_amount=Decimal(str(min_trade_amount))
+                    )
+        
+        if not order_batch or not order_batch.orders:
+            console.print("[yellow]⚠️ No orders generated[/yellow]")
+            raise typer.Exit(0)
+        
+        # Save orders to CSV
+        if output_filename is None:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_filename = f"orders_{order_type}_{account_id}_{portfolio_id}_{timestamp}.csv"
+        
+        if not output_filename.endswith('.csv'):
+            output_filename += '.csv'
+        
+        # Get output directory
+        app_config = config_loader.load_app_config()
+        from pathlib import Path
+        output_dir = Path(app_config.app.get("directories", {}).get("output_dir", "./data/output"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / output_filename
+        
+        order_batch.save_to_csv(output_path)
+        
+        # Show summary
+        summary = order_batch.get_summary()
+        
+        console.print(f"[green]✅ Order generation completed:[/green]")
+        console.print(f"  • Order type: {order_type}")
+        console.print(f"  • Account: {account_id}")
+        console.print(f"  • Portfolio: {portfolio_id}")
+        console.print(f"  • Total orders: {summary['total_orders']}")
+        console.print(f"  • Buy orders: {summary['buy_orders']} (${summary['total_buy_amount']:,.2f})")
+        console.print(f"  • Sell orders: {summary['sell_orders']} (${summary['total_sell_amount']:,.2f})")
+        console.print(f"  • Net amount: ${summary['net_amount']:,.2f}")
+        console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+        
+        # Show individual orders
+        if len(order_batch.orders) <= 10:  # Show details if not too many orders
+            console.print(f"\n[bold blue]📋 Order Details:[/bold blue]")
+            for i, order in enumerate(order_batch.orders, 1):
+                console.print(f"  {i}. {order.action} {order.symbol}: ${order.amount:,.2f} ({order.notes})")
+
+    except ConnectionError as e:
+        console.print(f"[red]❌ Connection Error: {e}[/red]")
+        raise typer.Exit(1)
+    except SimpleOrderManagementPlatformError as e:
+        console.print(f"[red]❌ Platform Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.exception("Unexpected error during order generation")
+        raise typer.Exit(1)
+
+
+@app.command()
+def list_portfolios(
+    model_portfolio_path: Optional[str] = typer.Option(
+        None, "--mp-path",
+        help="Path to MP_Master.csv file. Default: ./data/model_portfolios/MP_Master.csv"
+    ),
+):
+    """List all available model portfolios."""
+    
+    console.print("[bold blue]📋 Available Model Portfolios[/bold blue]")
+    
+    try:
+        # Load model portfolios
+        mp_path = model_portfolio_path or "./data/model_portfolios/MP_Master.csv"
+        manager = ModelPortfolioManager.load_from_csv(mp_path)
+        
+        table = Table(title="Model Portfolios")
+        table.add_column("Portfolio ID", style="cyan")
+        table.add_column("Name", style="green")
+        table.add_column("Holdings", justify="right", style="magenta")
+        table.add_column("Total Weight", justify="right", style="yellow")
+        table.add_column("Effective Date", style="blue")
+        
+        for portfolio_id in manager.list_portfolio_ids():
+            portfolio = manager.get_portfolio(portfolio_id)
+            holdings_str = ", ".join([h.get_instrument_identifier() for h in portfolio.holdings])
+            
+            table.add_row(
+                portfolio_id,
+                portfolio.bucket_name,
+                f"{len(portfolio.holdings)} ({holdings_str})",
+                f"{float(portfolio.total_weight or 0):.2f}%",
+                portfolio.effective_date
+            )
+        
+        console.print(table)
+        console.print(f"\n[green]✓[/green] Loaded from: {mp_path}")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error loading model portfolios: {e}[/red]")
         raise typer.Exit(1)

@@ -6,6 +6,10 @@ class SimpleOrderManagementPlatformError(Exception):
     pass
 
 
+# Alias for backward compatibility
+MarketDataPlatformError = SimpleOrderManagementPlatformError
+
+
 class ConnectionError(SimpleOrderManagementPlatformError):
     """Raised when there are connection issues with external services."""
     pass

@@ -34,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-market-data = "market_data_platform.cli:app"
+simple-order = "simple_order_management_platform.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]

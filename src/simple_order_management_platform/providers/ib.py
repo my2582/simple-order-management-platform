@@ -2,9 +2,9 @@
 
 import time
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List, Any
 import pandas as pd
-from ib_insync import util, IB
+from ib_insync import util, IB, Stock
 import logging
 
 from .base import BaseProvider
@@ -155,3 +155,59 @@ class IBProvider(BaseProvider):
         else:
             logger.warning(f"Unknown instrument type {instrument.instrument_type}, using TRADES")
             return 'TRADES'
+    
+    def get_current_prices(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get current prices for a list of symbols.
+        
+        Args:
+            symbols: List of symbol strings to get prices for
+            
+        Returns:
+            Dictionary mapping symbol -> price data
+        """
+        prices_dict = {}
+        
+        for symbol in symbols:
+            try:
+                # Create a generic stock contract for the symbol
+                # This is a simplified approach - in production you'd want to 
+                # use the universe data to create proper contracts
+                from ib_insync import Stock
+                contract = Stock(symbol, 'SMART', 'USD')
+                
+                # Get market data
+                ticker = self.ib.reqMktData(contract, '', False, False)
+                
+                # Wait for data
+                self.ib.sleep(2)
+                
+                # Get the price
+                close_price = ticker.marketPrice()
+                if close_price and close_price > 0:
+                    prices_dict[symbol] = {
+                        'close_price': float(close_price),
+                        'currency': 'USD',
+                        'data_date': datetime.now().date().isoformat()
+                    }
+                    logger.debug(f"Got price for {symbol}: {close_price}")
+                else:
+                    # Try last price or close price
+                    last_price = ticker.last
+                    if last_price and last_price > 0:
+                        prices_dict[symbol] = {
+                            'close_price': float(last_price),
+                            'currency': 'USD',
+                            'data_date': datetime.now().date().isoformat()
+                        }
+                        logger.debug(f"Got last price for {symbol}: {last_price}")
+                    else:
+                        logger.warning(f"No valid price data for {symbol}")
+                
+                # Cancel market data
+                self.ib.cancelMktData(contract)
+                
+            except Exception as e:
+                logger.warning(f"Failed to get price for {symbol}: {e}")
+                continue
+        
+        return prices_dict

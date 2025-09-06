@@ -7,13 +7,55 @@ app:
     config_dir: "./config"
     data_dir: "./data"
     output_dir: "./data/output"
+    universes_dir: "./config/universes"
+    sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading"
+    project_sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading/simple-order-management-platform"
   
   logging:
     level: "INFO"
     format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
   
+  # Email configuration for notifications
+  email:
+    sender: "minsu.yeom@arkifinance.com"
+    recipient: "minsu.yeom@arkifinance.com"
+    smtp_server: "smtp.office365.com"
+    smtp_port: 587
+    use_tls: true
+  
+  # Scheduling configuration (Singapore timezone)
+  scheduling:
+    timezone: "Asia/Singapore"
+    market_data_update: "06:00"  # Daily at 6:00 AM SGT
+    portfolio_update: "06:30"    # Daily at 6:30 AM SGT
+  
+  # IBKR Connection Profiles
+  ibkr_profiles:
+    portfolio_manager:
+      description: "Portfolio Manager - Full trading access"
+      host: "127.0.0.1"
+      port: 4002  # Paper trading port
+      client_id: 1
+      timeout: 30
+      permissions:
+        - "portfolio_download"
+        - "order_generation"
+        - "account_summary"
+    
+    trade_assistant:
+      description: "Trade Assistant - Market data access only"
+      host: "127.0.0.1"
+      port: 4002  # Same as portfolio manager for now (can be different)
+      client_id: 2
+      timeout: 30
+      permissions:
+        - "market_data"
+        - "universe_update"
+        - "price_download"
+  
+  # Legacy IB settings (for backward compatibility)
   ib:
     host: "127.0.0.1"
-    port: 4001
+    port: 4002
     client_id: 1
-    timeout: 10
+    timeout: 30

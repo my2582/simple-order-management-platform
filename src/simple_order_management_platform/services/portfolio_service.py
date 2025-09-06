@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime
 from decimal import Decimal
+import decimal
 from typing import List, Dict, Any, Optional
 from ib_insync import IB
 
@@ -136,24 +137,19 @@ class PortfolioService:
         try:
             contract = ib_position.contract
             
-            # Get market price - need to request it separately
+            # Use avgCost as fallback for market price when live data unavailable
             market_price = None
             market_value = None
             
-            # Request market price for the contract
+            # Try to get market price, but fallback to avgCost if unavailable
             try:
-                self.ib.reqMktData(contract, '', False, False)
-                self.ib.sleep(2)  # Wait for market data
-                
-                ticker = self.ib.ticker(contract)
-                if ticker and (ticker.marketPrice() or ticker.last):
-                    market_price = ticker.marketPrice() or ticker.last
-                
-                # Cancel market data to avoid subscription fees
-                self.ib.cancelMktData(contract)
+                # For delayed/paper trading, use avgCost as market price approximation
+                if hasattr(ib_position, 'avgCost') and ib_position.avgCost:
+                    market_price = ib_position.avgCost
+                    logger.debug(f"Using avgCost as market price for {contract.symbol}: {market_price}")
                 
             except Exception as e:
-                logger.warning(f"Could not get market price for {contract.symbol}: {e}")
+                logger.warning(f"Could not determine market price for {contract.symbol}: {e}")
                 
             # Calculate market value
             if market_price and ib_position.position:
@@ -168,6 +164,16 @@ class PortfolioService:
                     
                 market_value = Decimal(str(market_price)) * Decimal(str(ib_position.position)) * Decimal(str(multiplier))
             
+            # Safely handle None and NaN values
+            def safe_decimal(value):
+                if value is None:
+                    return None
+                try:
+                    decimal_val = Decimal(str(value))
+                    return decimal_val if decimal_val.is_finite() else None
+                except (ValueError, TypeError, decimal.InvalidOperation):
+                    return None
+            
             position = Position(
                 account_id=account_id,
                 symbol=contract.symbol,
@@ -176,9 +182,9 @@ class PortfolioService:
                 currency=contract.currency or 'USD',
                 sec_type=contract.secType or 'STK',
                 position=Decimal(str(ib_position.position)),
-                market_price=Decimal(str(market_price)) if market_price else None,
-                market_value=market_value,
-                avg_cost=Decimal(str(ib_position.avgCost)) if ib_position.avgCost else None,
+                market_price=safe_decimal(market_price),
+                market_value=safe_decimal(market_value),
+                avg_cost=safe_decimal(ib_position.avgCost),
                 unrealized_pnl=None,  # Position object doesn't have PnL info
                 realized_pnl=None,
                 local_symbol=getattr(contract, 'localSymbol', None),

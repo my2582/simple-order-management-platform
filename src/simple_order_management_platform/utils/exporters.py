@@ -185,7 +185,7 @@ def export_portfolio_snapshots(
     include_summary: bool = True
 ) -> Path:
     """
-    Export portfolio snapshots to Excel file.
+    Export portfolio snapshots to Excel file with unified position matrix.
     
     Args:
         multi_portfolio: MultiAccountPortfolio object with snapshots
@@ -218,87 +218,21 @@ def export_portfolio_snapshots(
     
     logger.info(f"Exporting portfolio snapshots to: {output_path}")
     
-    # Create Excel file with multiple sheets
+    # Create Excel file with unified position matrix
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        
+        # Create unified position matrix sheet
+        position_matrix_df = _create_unified_position_matrix(multi_portfolio)
+        position_matrix_df.to_excel(writer, sheet_name='Portfolio_Matrix', index=False)
         
         # Create summary sheet if requested
         if include_summary:
-            summary_df = _create_portfolio_summary_sheet(multi_portfolio)
+            summary_df = _create_portfolio_summary_sheet_v2(multi_portfolio)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
-        
-        # Create individual sheets for each account
-        for snapshot in multi_portfolio.snapshots:
-            account_summary = snapshot.get_positions_summary()
-            
-            # Create sheet even if no positions (show account info)
-            create_account_sheet = True
-            
-            # Create sheet name
-            sheet_name = f"Account_{snapshot.account_id}"
-            if len(sheet_name) > 31:  # Excel sheet name limit
-                sheet_name = f"Acc_{snapshot.account_id[:25]}"
-            
-            try:
-                # Create account metadata
-                metadata_rows = [
-                    ['Account Information', ''],
-                    ['Account ID', snapshot.account_id],
-                    ['Timestamp', snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')],
-                    ['Total Portfolio Value', f"${account_summary['total_value']:,.2f}"],
-                    ['Cash Percentage', f"{account_summary['cash_percentage']:.2f}%"],
-                    ['Number of Positions', len(account_summary['positions'])],
-                    ['', ''],
-                ]
-                
-                # Add account summary information if available
-                if snapshot.account_summary:
-                    summary = snapshot.account_summary
-                    metadata_rows.extend([
-                        ['Account Summary Details', ''],
-                        ['Net Liquidation', f"${float(summary.net_liquidation or 0):,.2f}"],
-                        ['Total Cash Value', f"${float(summary.total_cash_value or 0):,.2f}"],
-                        ['Buying Power', f"${float(summary.buying_power or 0):,.2f}"],
-                        ['Unrealized PnL', f"${float(summary.unrealized_pnl or 0):,.2f}"],
-                        ['', ''],
-                    ])
-                
-                metadata_rows.extend([['', ''], ['Position Details', '']])
-                metadata_df = pd.DataFrame(metadata_rows, columns=['Field', 'Value'])
-                
-                # Write metadata
-                metadata_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=0)
-                
-                # Write positions data if any
-                start_row = len(metadata_df) + 1
-                if account_summary['positions']:
-                    positions_df = pd.DataFrame(account_summary['positions'])
-                    positions_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=start_row)
-                else:
-                    # Create empty positions template
-                    empty_positions = pd.DataFrame([{
-                        'Symbol': 'No positions found',
-                        'Exchange': '',
-                        'Currency': '',
-                        'SecType': '',
-                        'Position': 0,
-                        'Market_Price': 0,
-                        'Market_Value': 0,
-                        'Weight_Pct': 0,
-                        'Avg_Cost': 0,
-                        'Unrealized_PnL': 0,
-                        'Local_Symbol': ''
-                    }])
-                    empty_positions.to_excel(writer, sheet_name=sheet_name, index=False, startrow=start_row)
-                
-                logger.debug(f"Exported account {snapshot.account_id} to sheet '{sheet_name}'")
-                
-            except Exception as e:
-                logger.error(f"Failed to export account {snapshot.account_id} to Excel: {e}")
-                continue
     
     # Log export summary
     total_accounts = len(multi_portfolio.snapshots)
-    total_positions = sum(len(s.positions) for s in multi_portfolio.snapshots if s.positions)
+    total_positions = sum(len([p for p in s.positions if p.position != 0]) for s in multi_portfolio.snapshots)
     
     logger.info(f"Portfolio export completed: {total_accounts} accounts, "
                f"{total_positions} total positions exported to {output_path.name}")
@@ -306,8 +240,112 @@ def export_portfolio_snapshots(
     return output_path
 
 
-def _create_portfolio_summary_sheet(multi_portfolio: 'MultiAccountPortfolio') -> pd.DataFrame:
-    """Create summary sheet for portfolio snapshots."""
+def _create_unified_position_matrix(multi_portfolio: 'MultiAccountPortfolio') -> pd.DataFrame:
+    """Create unified position matrix with all accounts and positions."""
+    
+    # Collect all unique symbols across all accounts
+    all_symbols = set()
+    account_data = {}
+    
+    for snapshot in multi_portfolio.snapshots:
+        account_summary = snapshot.get_positions_summary()
+        account_data[snapshot.account_id] = {
+            'positions': {pos['Symbol']: pos for pos in account_summary['positions']},
+            'net_liquidation': float(account_summary['total_value']),
+            'cash_percentage': account_summary['cash_percentage'],
+            'account_summary': snapshot.account_summary
+        }
+        
+        # Add symbols to the set
+        for pos in account_summary['positions']:
+            all_symbols.add(pos['Symbol'])
+    
+    # Sort symbols for consistent ordering
+    all_symbols = sorted(all_symbols)
+    
+    # Create the matrix data
+    matrix_data = []
+    
+    for account_id, data in account_data.items():
+        row = {'Account_ID': account_id}
+        
+        # Add account summary columns first
+        net_liq = data['net_liquidation']
+        row['Net_Liquidation_Value'] = net_liq
+        
+        # Calculate cash information from account summary
+        cash_base = 0
+        cash_local = 0
+        if data['account_summary']:
+            cash_base = float(data['account_summary'].total_cash_value or 0)
+            # For now, assume cash_local same as cash_base (can be enhanced later)
+            cash_local = cash_base
+        
+        row['Cash_Base_Currency'] = cash_base
+        row['Cash_Local_Currency'] = cash_local
+        
+        # Calculate risk asset percentage
+        total_position_value = sum(
+            abs(pos.get('Market_Value', 0)) for pos in data['positions'].values()
+        )
+        
+        if net_liq != 0:
+            cash_pct = (cash_base / net_liq) * 100
+            risk_asset_pct = (total_position_value / net_liq) * 100
+        else:
+            cash_pct = 0
+            risk_asset_pct = 0
+        
+        row['Risk_Asset_Pct'] = risk_asset_pct
+        row['Cash_Pct'] = cash_pct
+        
+        # Add position weights for each symbol
+        for symbol in all_symbols:
+            if symbol in data['positions']:
+                pos_data = data['positions'][symbol]
+                weight_pct = pos_data['Weight_Pct']
+                # Get the company name if available
+                company_name = pos_data.get('Description', symbol)
+            else:
+                weight_pct = 0.0
+                company_name = symbol
+            
+            # Use safe column names for Excel (symbol + company name)
+            safe_symbol = symbol.replace('/', '_').replace(' ', '_')
+            safe_name = company_name.replace('/', '_').replace(' ', '_')
+            # Create column header with both symbol and name
+            col_header = f'{safe_symbol}_{safe_name}_Weight' if safe_name != safe_symbol else f'{safe_symbol}_Weight'
+            # Limit column name length to avoid Excel issues
+            if len(col_header) > 50:
+                col_header = f'{safe_symbol}_Weight'
+            
+            row[col_header] = weight_pct
+        
+        matrix_data.append(row)
+    
+    df = pd.DataFrame(matrix_data)
+    
+    # Reorder columns to match requirements
+    base_cols = [
+        'Account_ID', 
+        'Net_Liquidation_Value',
+        'Risk_Asset_Pct', 
+        'Cash_Pct',
+        'Cash_Base_Currency', 
+        'Cash_Local_Currency'
+    ]
+    
+    symbol_cols = [col for col in df.columns if col.endswith('_Weight')]
+    
+    # Reorder columns
+    ordered_cols = base_cols + symbol_cols
+    df = df[ordered_cols]
+    
+    return df
+
+
+def _create_portfolio_summary_sheet_v2(multi_portfolio: 'MultiAccountPortfolio') -> pd.DataFrame:
+    """Create improved summary sheet with IBKR standard terminology."""
     
     summary_data = []
     
@@ -315,48 +353,51 @@ def _create_portfolio_summary_sheet(multi_portfolio: 'MultiAccountPortfolio') ->
     combined_summary = multi_portfolio.get_combined_summary()
     
     summary_data.extend([
-        ['Portfolio Summary', '', '', '', '', ''],
-        ['Export Time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'), '', '', '', ''],
-        ['Total Accounts', combined_summary['total_accounts'], '', '', '', ''],
-        ['Total Portfolio Value', f"${combined_summary['total_portfolio_value']:,.2f}", '', '', '', ''],
-        ['Total Positions', combined_summary['total_positions'], '', '', '', ''],
-        ['', '', '', '', '', ''],
-        ['Account Details', '', '', '', '', ''],
-        ['Account ID', 'Positions', 'Total Value', 'Cash %', 'Largest Position', 'Top Holdings']
+        ['Portfolio Summary', '', '', '', '', '', ''],
+        ['Export Time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'), '', '', '', '', ''],
+        ['Total Accounts', combined_summary['total_accounts'], '', '', '', '', ''],
+        ['Total Net Liquidation Value', f"${combined_summary['total_portfolio_value']:,.2f}", '', '', '', '', ''],
+        ['', '', '', '', '', '', ''],
+        ['Account Details', '', '', '', '', '', ''],
+        ['Account ID', 'Net Liquidation Value', 'Risk Asset %', 'Cash %', 'Cash Base Currency', 'Cash Local Currency', 'Active Positions']
     ])
     
     # Add account-by-account details
     for snapshot in multi_portfolio.snapshots:
         account_summary = snapshot.get_positions_summary()
         
-        # Find largest position by value
-        largest_position = ""
-        top_holdings = ""
+        net_liq = account_summary['total_value']
         
-        if account_summary['positions']:
-            positions_sorted = sorted(
-                account_summary['positions'], 
-                key=lambda x: abs(x.get('Market_Value', 0)), 
-                reverse=True
-            )
-            
-            if positions_sorted:
-                largest_position = f"{positions_sorted[0]['Symbol']} (${abs(positions_sorted[0].get('Market_Value', 0)):,.0f})"
-                
-                # Top 3 holdings
-                top_3 = positions_sorted[:3]
-                top_holdings = ", ".join([
-                    f"{pos['Symbol']} ({pos['Weight_Pct']:.1f}%)"
-                    for pos in top_3
-                ])
+        # Calculate cash information
+        cash_base = 0
+        cash_local = 0
+        if snapshot.account_summary:
+            cash_base = float(snapshot.account_summary.total_cash_value or 0)
+            cash_local = cash_base  # Simplified for now
+        
+        # Calculate risk asset percentage
+        total_position_value = sum(
+            abs(pos.get('Market_Value', 0)) for pos in account_summary['positions']
+        )
+        
+        if net_liq != 0:
+            cash_pct = (cash_base / net_liq) * 100
+            risk_asset_pct = (total_position_value / net_liq) * 100
+        else:
+            cash_pct = 0
+            risk_asset_pct = 0
+        
+        # Count active positions (non-zero)
+        active_positions = len([p for p in account_summary['positions'] if p.get('Position', 0) != 0])
         
         summary_data.append([
             snapshot.account_id,
-            len(account_summary['positions']),
-            f"${account_summary['total_value']:,.2f}",
-            f"{account_summary['cash_percentage']:.1f}%",
-            largest_position,
-            top_holdings[:50] + "..." if len(top_holdings) > 50 else top_holdings
+            f"${net_liq:,.2f}",
+            f"{risk_asset_pct:.1f}%",
+            f"{cash_pct:.1f}%",
+            f"${cash_base:,.2f}",
+            f"${cash_local:,.2f}",
+            active_positions
         ])
     
     return pd.DataFrame(summary_data)

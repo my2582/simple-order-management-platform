@@ -87,3 +87,27 @@ class AppConfig(BaseModel):
     @property
     def ib_settings(self) -> Dict[str, Any]:
         return self.app.get("ib", {})
+
+
+class Config:
+    """Main configuration class that loads all configurations."""
+    
+    def __init__(self):
+        """Initialize configuration by loading all config files."""
+        from .loader import config_loader
+        
+        # Load app configuration
+        self.app_config = config_loader.load_app_config()
+        self.app = self.app_config.app
+        
+        try:
+            # Load strategies configuration
+            self.strategies_config = config_loader.load_strategies_config()
+        except Exception:
+            # If strategies config fails, create empty config
+            self.strategies_config = StrategiesConfig(strategies={})
+    
+    @property
+    def ib_settings(self) -> Dict[str, Any]:
+        """Get IB settings from app configuration."""
+        return self.app.get("ib", {})

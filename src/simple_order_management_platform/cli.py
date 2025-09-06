@@ -14,9 +14,12 @@ from .core.orchestrator import DataOrchestrator
 from .providers.ib import IBProvider
 from .models.base import InstrumentType
 from .utils.exporters import export_multi_asset_results, export_portfolio_snapshots
+from .utils.ibkr_exporters import export_ibkr_portfolio_report
 from .utils.exceptions import SimpleOrderManagementPlatformError, ConnectionError
 from .services.portfolio_service import PortfolioService
 from .services.order_service import OrderService
+from .services.automation_service import automated_portfolio_service
+from .services.market_data_service import market_data_service
 from .models.model_portfolio import ModelPortfolioManager
 
 app = typer.Typer(
@@ -195,9 +198,6 @@ def list_strategies():
         console.print(f"[red]❌ Error listing strategies: {e}[/red]")
         raise typer.Exit(1)
 
-
-if __name__ == "__main__":
-    app()
 
 @app.command()
 def update_master(
@@ -408,6 +408,430 @@ def download_positions(
 
 
 @app.command()
+def download_positions_ibkr(
+    accounts: Optional[List[str]] = typer.Option(
+        None, "--accounts", "-a",
+        help="Specific account IDs to download (comma-separated). If not provided, downloads all accounts."
+    ),
+    output_filename: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output Excel filename. Default: auto-generated with timestamp"
+    ),
+    # IB connection overrides
+    ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
+    ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
+    ib_client_id: Optional[int] = typer.Option(None, "--ib-client-id", help="IB client ID override"),
+):
+    """Download portfolio positions in IBKR standard format with asset class mapping."""
+    
+    console.print("[bold blue]📊 Starting IBKR standard portfolio positions download[/bold blue]")
+
+    try:
+        # Load app configuration
+        app_config = config_loader.load_app_config()
+        
+        # Get IB connection settings with overrides
+        ib_settings = app_config.ib_settings
+        host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
+        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+
+        # Execute download with IB connection
+        with IBConnector(host=host, port=port, client_id=client_id) as connector:
+            provider = IBProvider(connector)
+            portfolio_service = PortfolioService(provider)
+
+            with console.status("[bold green]Downloading portfolio positions..."):
+                # Parse account list if provided
+                account_list = None
+                if accounts:
+                    if len(accounts) == 1 and ',' in accounts[0]:
+                        # Handle comma-separated string
+                        account_list = [acc.strip() for acc in accounts[0].split(',')]
+                    else:
+                        account_list = accounts
+                
+                multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+            
+            if not multi_portfolio.snapshots:
+                console.print("[yellow]⚠️ No portfolio data downloaded[/yellow]")
+                raise typer.Exit(0)
+
+            # Export results to IBKR standard Excel format
+            output_path = export_ibkr_portfolio_report(
+                multi_portfolio=multi_portfolio,
+                output_filename=output_filename,
+                include_metadata=True
+            )
+            
+            # Show summary
+            combined_summary = multi_portfolio.get_combined_summary()
+            
+            console.print(f"[green]✅ IBKR portfolio download completed:[/green]")
+            console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
+            console.print(f"  • Total positions: {combined_summary['total_positions']}")
+            console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
+            console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+            
+            # Show per-account summary with asset class info
+            console.print(f"\n[bold blue]📋 Per-Account Summary:[/bold blue]")
+            for snapshot in multi_portfolio.snapshots:
+                account_summary = snapshot.get_positions_summary()
+                
+                # Count asset classes
+                asset_classes = set()
+                from .models.universe import get_asset_class
+                for pos in account_summary['positions']:
+                    asset_class = get_asset_class(pos['Symbol'])
+                    if asset_class:
+                        asset_classes.add(asset_class)
+                
+                console.print(f"  • Account {snapshot.account_id}: "
+                             f"{len(account_summary['positions'])} positions, "
+                             f"${account_summary['total_value']:,.2f} total value, "
+                             f"{account_summary['cash_percentage']:.1f}% cash, "
+                             f"{len(asset_classes)} asset classes")
+
+    except ConnectionError as e:
+        console.print(f"[red]❌ Connection Error: {e}[/red]")
+        raise typer.Exit(1)
+    except SimpleOrderManagementPlatformError as e:
+        console.print(f"[red]❌ Platform Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.exception("Unexpected error during IBKR positions download")
+        raise typer.Exit(1)
+
+
+@app.command()
+def run_daily_update(
+    accounts: Optional[List[str]] = typer.Option(
+        None, "--accounts", "-a",
+        help="Specific account IDs to process (comma-separated). If not provided, processes all accounts."
+    ),
+    skip_email: bool = typer.Option(
+        False, "--skip-email",
+        help="Skip sending email notification"
+    ),
+    skip_sharepoint: bool = typer.Option(
+        False, "--skip-sharepoint", 
+        help="Skip uploading to SharePoint"
+    ),
+):
+    """Run automated daily portfolio update with SharePoint and email integration."""
+    
+    console.print("[bold blue]🤖 Starting automated daily portfolio update[/bold blue]")
+    
+    try:
+        # Parse account list if provided
+        account_list = None
+        if accounts:
+            if len(accounts) == 1 and ',' in accounts[0]:
+                account_list = [acc.strip() for acc in accounts[0].split(',')]
+            else:
+                account_list = accounts
+        
+        # Run the automated update
+        with console.status("[bold green]Running automated portfolio update..."):
+            result = automated_portfolio_service.run_daily_portfolio_update(
+                account_ids=account_list,
+                send_email=not skip_email,
+                upload_to_sharepoint=not skip_sharepoint
+            )
+        
+        # Display results
+        if result['success']:
+            console.print(f"[green]✅ Daily portfolio update completed successfully![/green]")
+            console.print(f"  • Duration: {result['duration_seconds']:.1f} seconds")
+            console.print(f"  • Accounts processed: {result['accounts_processed']}")
+            console.print(f"  • Total portfolio value: ${result['total_portfolio_value']:,.2f}")
+            console.print(f"  • SharePoint uploaded: {'✅' if result['sharepoint_uploaded'] else '❌'}")
+            console.print(f"  • Email sent: {'✅' if result['email_sent'] else '❌'}")
+            
+            if result['files_created']:
+                console.print(f"\n[bold blue]📄 Files created:[/bold blue]")
+                for file_path in result['files_created']:
+                    console.print(f"  • {file_path}")
+            
+            # Show operation log
+            console.print(f"\n[bold blue]📋 Operation Log:[/bold blue]")
+            for log_entry in result['operation_log']:
+                console.print(f"  {log_entry}")
+        
+        else:
+            console.print(f"[red]❌ Daily portfolio update failed![/red]")
+            
+            if result['errors']:
+                console.print(f"\n[bold red]Errors:[/bold red]")
+                for error in result['errors']:
+                    console.print(f"  • {error}")
+            
+            if result['operation_log']:
+                console.print(f"\n[bold blue]📋 Operation Log:[/bold blue]")
+                for log_entry in result['operation_log']:
+                    console.print(f"  {log_entry}")
+            
+            raise typer.Exit(1)
+    
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error in automated update: {e}[/red]")
+        logger.exception("Unexpected error during automated update")
+        raise typer.Exit(1)
+
+
+@app.command()
+def test_integrations():
+    """Test all integrations (SharePoint, Email, IBKR) for automated services."""
+    
+    console.print("[bold blue]🔧 Testing system integrations[/bold blue]")
+    
+    try:
+        with console.status("[bold green]Testing integrations..."):
+            results = automated_portfolio_service.test_integrations()
+        
+        # Create results table
+        table = Table(title="Integration Test Results")
+        table.add_column("Service", style="cyan")
+        table.add_column("Status", justify="center")
+        table.add_column("Details", style="yellow")
+        
+        # SharePoint
+        sharepoint_status = "✅ Available" if results['sharepoint']['available'] else "❌ Unavailable"
+        sharepoint_details = ""
+        if results['sharepoint']['available']:
+            info = results['sharepoint'].get('info', {})
+            sharepoint_details = f"Files: {info.get('total_files', 'N/A')}, Size: {info.get('project_size_mb', 'N/A')} MB"
+        elif results['sharepoint']['error']:
+            sharepoint_details = f"Error: {results['sharepoint']['error']}"
+        
+        table.add_row("SharePoint/OneDrive", sharepoint_status, sharepoint_details)
+        
+        # Email
+        email_status = "✅ Available" if results['email']['available'] else "❌ Unavailable"
+        email_details = results['email']['error'] if results['email']['error'] else "SMTP connection successful"
+        table.add_row("Email (Office 365)", email_status, email_details)
+        
+        # IBKR
+        ibkr_status = "✅ Connected" if results['ibkr']['available'] else "❌ Disconnected"
+        ibkr_details = results['ibkr']['error'] if results['ibkr']['error'] else "API connection successful"
+        table.add_row("IBKR Gateway", ibkr_status, ibkr_details)
+        
+        console.print(table)
+        
+        # Overall status
+        all_available = all(result['available'] for result in results.values())
+        if all_available:
+            console.print("\n[green]🎉 All integrations are working correctly![/green]")
+            console.print("[green]The automated daily update system is ready to use.[/green]")
+        else:
+            console.print("\n[yellow]⚠️ Some integrations have issues.[/yellow]")
+            console.print("[yellow]Please resolve the issues before running automated updates.[/yellow]")
+    
+    except Exception as e:
+        console.print(f"[red]❌ Integration test failed: {e}[/red]")
+        logger.exception("Integration test error")
+        raise typer.Exit(1)
+
+
+@app.command()
+def update_market_data(
+    force_update: bool = typer.Option(
+        False, "--force",
+        help="Force update even if cache is fresh"
+    ),
+    max_age_hours: float = typer.Option(
+        24.0, "--max-age",
+        help="Maximum cache age in hours before update (default: 24)"
+    ),
+    send_notification: bool = typer.Option(
+        True, "--notify/--no-notify",
+        help="Send email notification after update"
+    ),
+):
+    """Update market data prices for all universe symbols."""
+    
+    console.print("[bold blue]📊 Starting market data update[/bold blue]")
+    
+    try:
+        with console.status("[bold green]Updating market data from IBKR..."):
+            result = market_data_service.update_universe_prices(
+                force_update=force_update,
+                max_age_hours=max_age_hours
+            )
+        
+        if result['success']:
+            if result['cache_was_fresh']:
+                console.print(f"[green]✅ Cache was fresh - no update needed[/green]")
+                console.print(f"  • Cached symbols: {result['symbols_updated']}")
+                console.print(f"  • Data date: {result['data_date']}")
+            else:
+                console.print(f"[green]✅ Market data update completed![/green]")
+                console.print(f"  • Symbols updated: {result['symbols_updated']}")
+                console.print(f"  • Symbols failed: {result['symbols_failed']}")
+                console.print(f"  • Duration: {result['duration_seconds']:.1f} seconds")
+                console.print(f"  • Data date: {result['data_date']}")
+            
+            # Send notification if requested and not just a cache check
+            if send_notification and not result['cache_was_fresh']:
+                console.print("\n[bold blue]📧 Sending notification...[/bold blue]")
+                notification_sent = market_data_service.send_market_data_notification(result)
+                
+                if notification_sent:
+                    console.print("[green]✅ Notification sent successfully[/green]")
+                else:
+                    console.print("[yellow]⚠️ Failed to send notification[/yellow]")
+        else:
+            console.print(f"[red]❌ Market data update failed![/red]")
+            
+            if result['errors']:
+                console.print(f"\n[bold red]Errors:[/bold red]")
+                for error in result['errors']:
+                    console.print(f"  • {error}")
+            
+            raise typer.Exit(1)
+    
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error in market data update: {e}[/red]")
+        logger.exception("Unexpected error during market data update")
+        raise typer.Exit(1)
+
+
+@app.command()
+def market_data_status():
+    """Show market data cache status and information."""
+    
+    console.print("[bold blue]📊 Market Data Cache Status[/bold blue]")
+    
+    try:
+        cache_info = market_data_service.get_cache_status()
+        
+        # Create status table
+        table = Table(title="Cache Information")
+        table.add_column("Field", style="cyan")
+        table.add_column("Value", style="yellow")
+        
+        table.add_row("Cache File Exists", "✅ Yes" if cache_info['cache_file_exists'] else "❌ No")
+        table.add_row("Cached Symbols", str(cache_info['cached_symbols']))
+        table.add_row("Last Update", cache_info.get('last_update', 'Never'))
+        table.add_row("Data Date", cache_info.get('data_date', 'Unknown'))
+        
+        age_hours = cache_info.get('cache_age_hours')
+        if age_hours is not None:
+            age_status = "Fresh" if age_hours <= 24 else "Stale"
+            table.add_row("Cache Age", f"{age_hours:.1f} hours ({age_status})")
+        else:
+            table.add_row("Cache Age", "Unknown")
+        
+        table.add_row("Update Source", cache_info.get('update_source', 'Unknown'))
+        
+        console.print(table)
+        
+        # Show cache freshness status
+        is_fresh = market_data_service.cache.is_cache_fresh(24.0)
+        if is_fresh:
+            console.print("\n[green]🎉 Cache is fresh and ready to use![/green]")
+        else:
+            console.print("\n[yellow]⚠️ Cache is stale - consider updating[/yellow]")
+            console.print("[yellow]Run: simple-order update-market-data[/yellow]")
+    
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get cache status: {e}[/red]")
+        logger.exception("Cache status error")
+        raise typer.Exit(1)
+
+
+@app.command()
+def download_positions_cached(
+    accounts: Optional[List[str]] = typer.Option(
+        None, "--accounts", "-a",
+        help="Specific account IDs to download (comma-separated). If not provided, downloads all accounts."
+    ),
+    output_filename: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output Excel filename. Default: auto-generated with timestamp"
+    ),
+    # IB connection overrides
+    ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
+    ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
+    ib_client_id: Optional[int] = typer.Option(None, "--ib-client-id", help="IB client ID override"),
+):
+    """Download portfolio positions using cached market data (faster, offline-capable)."""
+    
+    console.print("[bold blue]📊 Starting portfolio download with cached prices[/bold blue]")
+    
+    try:
+        # Check cache status first
+        cache_info = market_data_service.get_cache_status()
+        
+        if cache_info['cached_symbols'] == 0:
+            console.print("[red]❌ No cached market data available![/red]")
+            console.print("[yellow]Please run 'simple-order update-market-data' first[/yellow]")
+            raise typer.Exit(1)
+        
+        if not market_data_service.cache.is_cache_fresh(48.0):  # Allow 48h for cached mode
+            console.print("[yellow]⚠️ Warning: Cached data is stale (>48h old)[/yellow]")
+            console.print(f"[yellow]Last update: {cache_info.get('last_update', 'Unknown')}[/yellow]")
+        
+        # Load app configuration
+        app_config = config_loader.load_app_config()
+        
+        # Get IB connection settings with overrides
+        ib_settings = app_config.ib_settings
+        host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
+        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+
+        # Execute download with IB connection (using cached prices)
+        with IBConnector(host=host, port=port, client_id=client_id) as connector:
+            provider = IBProvider(connector)
+            portfolio_service = PortfolioService(provider, use_cached_prices=True)  # Enable cached prices
+
+            with console.status("[bold green]Downloading portfolio positions (cached prices)..."):
+                # Parse account list if provided
+                account_list = None
+                if accounts:
+                    if len(accounts) == 1 and ',' in accounts[0]:
+                        account_list = [acc.strip() for acc in accounts[0].split(',')]
+                    else:
+                        account_list = accounts
+                
+                multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+            
+            if not multi_portfolio.snapshots:
+                console.print("[yellow]⚠️ No portfolio data downloaded[/yellow]")
+                raise typer.Exit(0)
+
+            # Export results to IBKR standard Excel format
+            output_path = export_ibkr_portfolio_report(
+                multi_portfolio=multi_portfolio,
+                output_filename=output_filename,
+                include_metadata=True
+            )
+            
+            # Show summary
+            combined_summary = multi_portfolio.get_combined_summary()
+            
+            console.print(f"[green]✅ Portfolio download completed (cached prices)![/green]")
+            console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
+            console.print(f"  • Total positions: {combined_summary['total_positions']}")
+            console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
+            console.print(f"  • Price data date: {cache_info.get('data_date', 'Unknown')}")
+            console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+    
+    except ConnectionError as e:
+        console.print(f"[red]❌ Connection Error: {e}[/red]")
+        raise typer.Exit(1)
+    except SimpleOrderManagementPlatformError as e:
+        console.print(f"[red]❌ Platform Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.exception("Unexpected error during cached portfolio download")
+        raise typer.Exit(1)
+
+
+@app.command()
 def generate_orders(
     account_id: str = typer.Argument(..., help="Account ID to generate orders for"),
     portfolio_id: str = typer.Argument(..., help="Model portfolio ID (e.g., B301 for GTAA)"),
@@ -612,3 +1036,490 @@ def list_portfolios(
     except Exception as e:
         console.print(f"[red]❌ Error loading model portfolios: {e}[/red]")
         raise typer.Exit(1)
+
+
+# ========================================
+# Scheduler Commands (Singapore Timezone)
+# ========================================
+
+@app.command("start-scheduler")
+def start_scheduler():
+    """Start the Singapore timezone scheduler daemon for automated daily updates."""
+    
+    console.print("[bold blue]🚀 Starting Portfolio Management Scheduler[/bold blue]")
+    
+    try:
+        import asyncio
+        from .services.scheduler_service import SchedulerService
+        from .config import Config
+        
+        # Load configuration
+        config = Config()
+        
+        # Create and run scheduler
+        scheduler_service = SchedulerService(config)
+        
+        console.print("[green]✓[/green] Scheduler configuration loaded")
+        console.print(f"[green]✓[/green] Timezone: Asia/Singapore")
+        console.print(f"[green]✓[/green] Market data update: {config.app['scheduling']['market_data_update']} SGT daily")
+        console.print(f"[green]✓[/green] Portfolio update: {config.app['scheduling']['portfolio_update']} SGT daily")
+        
+        # Run scheduler
+        asyncio.run(scheduler_service.run_forever())
+        
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚠️ Scheduler stopped by user[/yellow]")
+    except Exception as e:
+        console.print(f"[red]❌ Scheduler error: {e}[/red]")
+        logger.exception("Unexpected error in scheduler")
+        raise typer.Exit(1)
+
+
+@app.command("scheduler-status")
+def scheduler_status():
+    """Check the status of scheduled tasks and next run times."""
+    
+    console.print("[bold blue]📊 Scheduler Status[/bold blue]")
+    
+    try:
+        import asyncio
+        from .services.scheduler_service import SchedulerService, SchedulerContext
+        from .config import Config
+        import pytz
+        from datetime import datetime
+        
+        # Load configuration
+        config = Config()
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        current_time = datetime.now(singapore_tz)
+        
+        console.print(f"[green]✓[/green] Current time (SGT): {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        
+        # Show configuration
+        console.print(f"\n[bold blue]📅 Schedule Configuration:[/bold blue]")
+        console.print(f"  • Market Data Update: {config.app['scheduling']['market_data_update']} SGT daily")
+        console.print(f"  • Portfolio Update: {config.app['scheduling']['portfolio_update']} SGT daily")
+        console.print(f"  • Timezone: Asia/Singapore")
+        
+        # Try to get scheduler status (if running)
+        async def get_status():
+            try:
+                async with SchedulerContext(config) as scheduler:
+                    return scheduler.get_status()
+            except Exception:
+                return None
+        
+        status = asyncio.run(get_status())
+        
+        if status and status.get('running'):
+            console.print(f"\n[green]🟢 Scheduler Status: RUNNING[/green]")
+            
+            if status.get('jobs'):
+                table = Table(title="Scheduled Jobs")
+                table.add_column("Job Name", style="cyan")
+                table.add_column("Next Run", style="green")
+                table.add_column("Trigger", style="yellow")
+                
+                for job in status['jobs']:
+                    table.add_row(
+                        job['name'],
+                        job['next_run_time'] or 'Not scheduled',
+                        job['trigger']
+                    )
+                
+                console.print(table)
+        else:
+            console.print(f"\n[red]🔴 Scheduler Status: NOT RUNNING[/red]")
+            console.print("Use 'start-scheduler' command to start the scheduler daemon.")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error checking scheduler status: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("test-scheduler")
+def test_scheduler():
+    """Test the scheduler service by running a quick validation of all components."""
+    
+    console.print("[bold blue]🧪 Testing Scheduler Service Components[/bold blue]")
+    
+    try:
+        import asyncio
+        from .services.scheduler_service import SchedulerService
+        from .config import Config
+        
+        async def run_tests():
+            # Load configuration
+            config = Config()
+            
+            console.print("[green]✓[/green] Configuration loaded successfully")
+            
+            # Create scheduler service (don't start)
+            scheduler_service = SchedulerService(config)
+            
+            console.print("[green]✓[/green] Scheduler service initialized")
+            
+            # Test configuration parsing
+            try:
+                market_data_time = scheduler_service._parse_time_config(
+                    config.app['scheduling']['market_data_update']
+                )
+                portfolio_time = scheduler_service._parse_time_config(
+                    config.app['scheduling']['portfolio_update']
+                )
+                
+                console.print(f"[green]✓[/green] Schedule times parsed: Market data {market_data_time}, Portfolio {portfolio_time}")
+            except Exception as e:
+                console.print(f"[red]❌ Time parsing failed: {e}[/red]")
+                return False
+            
+            # Test service dependencies
+            try:
+                # Check automation service
+                automation_service = scheduler_service.automation_service
+                console.print("[green]✓[/green] Automation service accessible")
+                
+                # Check market data service  
+                market_data_service = scheduler_service.market_data_service
+                console.print("[green]✓[/green] Market data service accessible")
+                
+                # Check email service
+                email_service = scheduler_service.email_service
+                console.print("[green]✓[/green] Email service accessible")
+                
+            except Exception as e:
+                console.print(f"[red]❌ Service dependency failed: {e}[/red]")
+                return False
+            
+            # Test timezone
+            try:
+                from datetime import datetime
+                current_time = datetime.now(scheduler_service.singapore_tz)
+                console.print(f"[green]✓[/green] Singapore timezone working: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            except Exception as e:
+                console.print(f"[red]❌ Timezone test failed: {e}[/red]")
+                return False
+            
+            return True
+        
+        success = asyncio.run(run_tests())
+        
+        if success:
+            console.print(f"\n[green]✅ All scheduler tests passed![/green]")
+            console.print("The scheduler service is ready to run.")
+        else:
+            console.print(f"\n[red]❌ Some scheduler tests failed![/red]")
+            raise typer.Exit(1)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Scheduler test error: {e}[/red]")
+        logger.exception("Unexpected error during scheduler test")
+        raise typer.Exit(1)
+
+
+@app.command("run-daily-update")
+def run_daily_update(
+    use_cached_prices: bool = typer.Option(
+        True, "--use-cached/--live-prices",
+        help="Use cached market data prices (default) or fetch live prices"
+    )
+):
+    """Run the complete daily portfolio update workflow manually (same as scheduled version)."""
+    
+    console.print("[bold blue]🔄 Running Daily Portfolio Update Workflow[/bold blue]")
+    
+    try:
+        import asyncio
+        from .services.automation_service import AutomationService
+        from .config import Config
+        from datetime import datetime
+        import pytz
+        
+        # Load configuration
+        config = Config()
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        start_time = datetime.now(singapore_tz)
+        
+        console.print(f"Start time (SGT): {start_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        console.print(f"Using cached prices: {'Yes' if use_cached_prices else 'No (live prices)'}")
+        
+        async def run_workflow():
+            # Create automation service
+            automation_service = AutomationService(config)
+            
+            with console.status("[bold green]Running portfolio update workflow..."):
+                # Run the full daily update
+                results = await automation_service.run_daily_portfolio_update(
+                    use_cached_prices=use_cached_prices
+                )
+            
+            return results
+        
+        # Run the workflow
+        results = asyncio.run(run_workflow())
+        
+        end_time = datetime.now(singapore_tz)
+        duration = (end_time - start_time).total_seconds()
+        
+        console.print(f"\n[green]✅ Daily portfolio update completed in {duration:.1f} seconds[/green]")
+        
+        # Show results
+        console.print(f"\n[bold blue]📋 Results:[/bold blue]")
+        for key, value in results.items():
+            if hasattr(value, 'name'):  # Path object
+                console.print(f"  • {key}: {value.name}")
+            else:
+                console.print(f"  • {key}: {value}")
+        
+    except Exception as e:
+        end_time = datetime.now(singapore_tz)
+        duration = (end_time - start_time).total_seconds()
+        
+        console.print(f"[red]❌ Daily update failed after {duration:.1f} seconds: {e}[/red]")
+        logger.exception("Unexpected error during daily update")
+        raise typer.Exit(1)
+
+
+@app.command("update-market-data")
+def update_market_data():
+    """Update market data cache using Trade Assistant role (same as scheduled version)."""
+    
+    console.print("[bold blue]📊 Updating Market Data Cache[/bold blue]")
+    
+    try:
+        import asyncio
+        from .services.market_data_service import MarketDataService
+        from .auth.permissions import UserRole
+        from .config import Config
+        from datetime import datetime
+        import pytz
+        
+        # Load configuration
+        config = Config()
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        start_time = datetime.now(singapore_tz)
+        
+        console.print(f"Start time (SGT): {start_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        console.print(f"Role: Trade Assistant")
+        
+        async def update_cache():
+            # Create market data service
+            market_data_service = MarketDataService(config)
+            
+            with console.status("[bold green]Updating market data cache..."):
+                # Update cache using Trade Assistant role
+                await market_data_service.update_cache(role=UserRole.TRADE_ASSISTANT)
+            
+            with console.status("[bold green]Exporting market data report..."):
+                # Export market data report
+                output_file = await market_data_service.export_market_data(
+                    filename_suffix="manual"
+                )
+            
+            return output_file
+        
+        # Run the update
+        output_file = asyncio.run(update_cache())
+        
+        end_time = datetime.now(singapore_tz)
+        duration = (end_time - start_time).total_seconds()
+        
+        console.print(f"\n[green]✅ Market data update completed in {duration:.1f} seconds[/green]")
+        console.print(f"  • Output file: [cyan]{output_file.name if output_file else 'N/A'}[/cyan]")
+        
+    except Exception as e:
+        end_time = datetime.now(singapore_tz)
+        duration = (end_time - start_time).total_seconds()
+        
+        console.print(f"[red]❌ Market data update failed after {duration:.1f} seconds: {e}[/red]")
+        logger.exception("Unexpected error during market data update")
+        raise typer.Exit(1)
+
+
+@app.command("market-data-status")
+def market_data_status():
+    """Check market data cache status and freshness."""
+    
+    console.print("[bold blue]📊 Market Data Cache Status[/bold blue]")
+    
+    try:
+        from .services.market_data_service import MarketDataService
+        from .config import Config
+        from datetime import datetime
+        import pytz
+        
+        # Load configuration
+        config = Config()
+        singapore_tz = pytz.timezone('Asia/Singapore')
+        current_time = datetime.now(singapore_tz)
+        
+        console.print(f"Current time (SGT): {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        
+        # Create market data service
+        market_data_service = MarketDataService(config)
+        
+        # Get cache status
+        status = market_data_service.get_cache_status()
+        
+        console.print(f"\n[bold blue]💾 Cache Status:[/bold blue]")
+        console.print(f"  • Cache directory: {status['cache_dir']}")
+        console.print(f"  • Cache exists: {'Yes' if status['cache_exists'] else 'No'}")
+        console.print(f"  • Cache file count: {status['cache_file_count']}")
+        console.print(f"  • Last updated: {status['last_updated'] or 'Never'}")
+        console.print(f"  • Is fresh: {'Yes' if status['is_fresh'] else 'No'}")
+        console.print(f"  • Age (hours): {status['age_hours']:.1f}" if status['age_hours'] is not None else "  • Age: N/A")
+        
+        # Show freshness status
+        if status['is_fresh']:
+            console.print(f"\n[green]✅ Market data cache is FRESH[/green]")
+        else:
+            console.print(f"\n[yellow]⚠️ Market data cache is STALE[/yellow]")
+            console.print("Consider running 'update-market-data' to refresh the cache.")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error checking market data status: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("download-positions-cached")
+def download_positions_cached(
+    accounts: Optional[List[str]] = typer.Option(
+        None, "--accounts", "-a",
+        help="Specific account IDs to download (comma-separated). If not provided, downloads all accounts."
+    ),
+    output_filename: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output Excel filename. Default: auto-generated with timestamp"
+    ),
+    # IB connection overrides
+    ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
+    ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
+    ib_client_id: Optional[int] = typer.Option(None, "--ib-client-id", help="IB client ID override"),
+):
+    """Download portfolio positions using cached market data prices (offline operation)."""
+    
+    console.print("[bold blue]📊 Downloading Portfolio Positions (Cached Prices)[/bold blue]")
+    
+    try:
+        # Load app configuration
+        app_config = config_loader.load_app_config()
+        
+        # Get IB connection settings with overrides
+        ib_settings = app_config.ib_settings
+        host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
+        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+
+        # Execute download with IB connection but using cached prices
+        with IBConnector(host=host, port=port, client_id=client_id) as connector:
+            provider = IBProvider(connector)
+            portfolio_service = PortfolioService(provider)
+
+            with console.status("[bold green]Downloading portfolio positions with cached prices..."):
+                # Parse account list if provided
+                account_list = None
+                if accounts:
+                    if len(accounts) == 1 and ',' in accounts[0]:
+                        # Handle comma-separated string
+                        account_list = [acc.strip() for acc in accounts[0].split(',')]
+                    else:
+                        account_list = accounts
+                
+                # Download using cached prices
+                multi_portfolio = portfolio_service.download_all_portfolios(
+                    account_ids=account_list, 
+                    use_cached_prices=True  # Key difference from regular download
+                )
+            
+            if not multi_portfolio.snapshots:
+                console.print("[yellow]⚠️ No portfolio data downloaded[/yellow]")
+                raise typer.Exit(0)
+
+            # Export results to IBKR standard Excel format
+            output_path = export_ibkr_portfolio_report(
+                multi_portfolio=multi_portfolio,
+                output_filename=output_filename,
+                include_metadata=True
+            )
+            
+            # Show summary
+            combined_summary = multi_portfolio.get_combined_summary()
+            
+            console.print(f"[green]✅ Cached portfolio download completed:[/green]")
+            console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
+            console.print(f"  • Total positions: {combined_summary['total_positions']}")
+            console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
+            console.print(f"  • Price source: CACHED DATA")
+            console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+
+    except ConnectionError as e:
+        console.print(f"[red]❌ Connection Error: {e}[/red]")
+        raise typer.Exit(1)
+    except SimpleOrderManagementPlatformError as e:
+        console.print(f"[red]❌ Platform Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.exception("Unexpected error during cached positions download")
+        raise typer.Exit(1)
+
+
+@app.command("test-integrations")
+def test_integrations():
+    """Test all system integrations (IBKR, SharePoint, Email, Market Data)."""
+    
+    console.print("[bold blue]🧪 Testing System Integrations[/bold blue]")
+    
+    try:
+        import asyncio
+        from .services.automation_service import AutomationService
+        from .config import Config
+        
+        async def run_integration_tests():
+            # Load configuration
+            config = Config()
+            
+            console.print("[green]✓[/green] Configuration loaded")
+            
+            # Create automation service
+            automation_service = AutomationService(config)
+            
+            console.print("[green]✓[/green] Automation service initialized")
+            
+            # Run integration tests
+            with console.status("[bold green]Running integration tests..."):
+                results = await automation_service.test_integrations()
+            
+            return results
+        
+        # Run tests
+        results = asyncio.run(run_integration_tests())
+        
+        console.print(f"\n[bold blue]📋 Integration Test Results:[/bold blue]")
+        
+        all_passed = True
+        for service_name, result in results.items():
+            if result.get('success', False):
+                console.print(f"  ✅ {service_name}: PASSED")
+                if result.get('details'):
+                    console.print(f"      {result['details']}")
+            else:
+                console.print(f"  ❌ {service_name}: FAILED")
+                if result.get('error'):
+                    console.print(f"      Error: {result['error']}")
+                all_passed = False
+        
+        if all_passed:
+            console.print(f"\n[green]✅ All integration tests passed![/green]")
+        else:
+            console.print(f"\n[red]❌ Some integration tests failed![/red]")
+            raise typer.Exit(1)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Integration test error: {e}[/red]")
+        logger.exception("Unexpected error during integration tests")
+        raise typer.Exit(1)
+
+
+if __name__ == "__main__":
+    app()

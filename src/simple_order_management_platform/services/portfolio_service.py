@@ -251,13 +251,35 @@ class PortfolioService:
             
             # Convert to Position objects
             positions = []
+            cached_price_count = 0
             for ib_position in ib_portfolio:
                 try:
                     position = self._convert_ib_portfolio_to_position(ib_position, account_id)
+                    
+                    # Apply cached prices if configured
+                    if self.use_cached_prices and position.symbol:
+                        cached_price_data = market_data_service.get_cached_price(position.symbol)
+                        if cached_price_data:
+                            # Update market price with cached price
+                            old_price = position.market_price
+                            position.market_price = Decimal(str(cached_price_data['close_price']))
+                            
+                            # Update market value
+                            if position.position and position.market_price:
+                                position.market_value = position.position * position.market_price
+                            
+                            cached_price_count += 1
+                            logger.debug(f"Updated {position.symbol}: {old_price} -> {position.market_price} (cached)")
+                        else:
+                            logger.warning(f"No cached price found for {position.symbol}, using live data")
+                    
                     positions.append(position)
                 except Exception as e:
                     logger.warning(f"Failed to convert position {ib_position}: {e}")
                     continue
+            
+            if self.use_cached_prices and cached_price_count > 0:
+                logger.info(f"Applied cached prices to {cached_price_count}/{len(positions)} positions")
             
             # Get account summary
             try:

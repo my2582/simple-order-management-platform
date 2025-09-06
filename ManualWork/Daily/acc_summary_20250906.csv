@@ -1,0 +1,11 @@
+Account,Net Liquidation Value,Securities Gross Position Value,Cash,Current Available Funds,Overnight Available Funds,Current Initial Margin,Projected Overnight Initial Margin,MTD Interest,Leverage (SEC),Trading Type,
+U12803113,4369.48,4303.81,65.67,2730.06,2730.06,1639.42,1639.42,0.00,0.98,Reg T Margin Account,
+U13382000,10799.44,20271.19,-9464.55,8189.03,8189.03,2610.41,2610.41,-7.21,1.88,Reg T Margin Account,
+U15768277,1.17,0.00,1.17,1.17,1.17,0.00,0.00,0.00,0.00,Reg T Margin Account,
+U19983995,20014.77,2555.03,17459.74,17494.74,17494.74,2520.02,2520.02,0.00,0.13,Reg T Margin Account,
+
+Account,Currency,Total Cash,Settled Cash,FX Cash,Stock,Futures,Dividends Receivable,Net Liquidation Value,Unrealized P&L,Realized P&L,Exchange Rate,
+U12803113,BASE,65.67,65.67,0.00,3745.56,0.00,0.00,4369.48,320.00,0.00,1.00,
+U13382000,BASE,-9464.55,-9464.55,0.00,20271.19,0.00,0.00,10799.44,758.02,0.00,1.00,
+U15768277,BASE,1.17,1.17,0.00,0.00,0.00,0.00,1.17,0.00,0.00,1.00,
+U19983995,BASE,17459.74,17459.74,0.00,0.00,0.00,0.00,20014.77,-261.45,0.00,1.00,

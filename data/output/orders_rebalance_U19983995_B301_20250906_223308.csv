@@ -1,0 +1,4 @@
+Account_ID,Symbol,Action,Quantity,Amount,Order_Type,Notes,Timestamp
+U19983995,INTC,SELL,,48701.45,MKT,Rebalance to B301 model,2025-09-06 22:33:08
+U19983995,PLTR,SELL,,92940.29,MKT,Rebalance to B301 model,2025-09-06 22:33:08
+U19983995,AMD,SELL,,48209.080005,MKT,Rebalance to B301 model,2025-09-06 22:33:08

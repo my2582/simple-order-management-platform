@@ -36,9 +36,9 @@ ENV/
 .ipynb_checkpoints
 
 # Project specific
-*.xlsx
-*.xls
-*.csv
+# *.xlsx
+# *.xls
+# *.csv
 
 # Local configuration
 .env

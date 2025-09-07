@@ -20,16 +20,18 @@ logger = logging.getLogger(__name__)
 class PortfolioService:
     """Service for downloading and managing portfolio positions from IBKR."""
     
-    def __init__(self, ib_provider: IBProvider, use_cached_prices: bool = False):
+    def __init__(self, ib_provider: IBProvider, use_cached_prices: bool = False, ultra_safe_mode: bool = False):
         """Initialize portfolio service.
         
         Args:
             ib_provider: Interactive Brokers provider instance
             use_cached_prices: Whether to use cached prices for position valuation
+            ultra_safe_mode: If True, avoid any API calls that might trigger subscriptions
         """
         self.ib_provider = ib_provider
         self.ib: IB = ib_provider.connector.ib
         self.use_cached_prices = use_cached_prices
+        self._force_account_values_only = ultra_safe_mode
     
     def get_all_accounts(self) -> List[str]:
         """Get all managed account IDs.
@@ -67,15 +69,22 @@ class PortfolioService:
         try:
             logger.info(f"Requesting portfolio for account: {account_id}")
             
-            # IBKR Read-only approach: Use portfolio() instead of positions()
-            # portfolio() is specifically for read-only access
-            logger.debug(f"Using portfolio() method for read-only access to account {account_id}")
+            # ULTRA-SAFE: Avoid ib.portfolio() completely if it triggers subscriptions
+            # Check if we need to use truly read-only approach
+            if hasattr(self, '_force_account_values_only') and self._force_account_values_only:
+                logger.warning(f"ULTRA-SAFE MODE: Using account values only for {account_id} - no position details available")
+                logger.warning(f"This mode avoids ALL subscription-based API calls to prevent write permission requests")
+                # Return empty list - we'll only show account summary data
+                return []
             
-            # Get portfolio (this is read-only and doesn't require subscriptions)
+            # Standard approach: Use ib.portfolio() but with precautions
+            logger.debug(f"Using portfolio() calls for account {account_id}")
+            
+            # Get portfolio with minimal subscription risk
             portfolio = self.ib.portfolio(account_id)
             
-            # Wait for data to be received
-            self.ib.sleep(1)
+            # Minimal wait to reduce subscription overhead
+            self.ib.sleep(0.5)  # Reduced from 1 second
             
             # Convert Portfolio items to Position-like objects
             account_positions = []

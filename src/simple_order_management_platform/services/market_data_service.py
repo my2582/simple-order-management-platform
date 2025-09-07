@@ -244,12 +244,13 @@ class MarketDataService:
                 logger.info(f"Cache is fresh ({cache_info['cache_age_hours']:.1f}h old), skipping update")
                 return result
             
-            # Get all universe symbols
-            universe_symbols = universe_manager.get_all_ib_symbols()
-            if not universe_symbols:
+            # Get all universe symbols (convert set to list for indexing)
+            universe_symbols_set = universe_manager.get_all_ib_symbols()
+            if not universe_symbols_set:
                 result['errors'].append("No universe symbols found")
                 return result
             
+            universe_symbols = list(universe_symbols_set)  # Convert set to list
             logger.info(f"Updating prices for {len(universe_symbols)} universe symbols")
             
             # Download prices from IBKR

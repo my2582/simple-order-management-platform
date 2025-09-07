@@ -92,7 +92,7 @@ class IBKRStandardExporter:
         return output_path
     
     def _create_summary_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
-        """Create IBKR standard summary sheet."""
+        """Create enhanced IBKR standard summary sheet with better formatting."""
         
         summary_data = []
         total_nlv = 0
@@ -120,6 +120,10 @@ class IBKRStandardExporter:
             gross_nlv_ratio = gross_position_value / nlv if nlv != 0 else 0
             cash_percentage = cash_value / nlv if nlv != 0 else 0
             
+            # Calculate additional IBKR metrics
+            buying_power = nlv * 4  # Approximate buying power (4:1 margin)
+            equity_with_loan = nlv - cash_value  # Equity with loan value
+            
             # Add to totals
             total_nlv += nlv
             total_gross_position += gross_position_value
@@ -128,34 +132,46 @@ class IBKRStandardExporter:
             summary_data.append({
                 'Account ID': snapshot.account_id,
                 'Net Liquidation Value': nlv,
+                'Total Cash Value': cash_value,
                 'Securities Gross Position Value': gross_position_value,
-                'Cash': cash_value,
                 'Gross/NLV': gross_nlv_ratio,
                 'Cash %': cash_percentage,
-                'Available Funds': cash_value * 1.04,  # Approximate available funds
-                'Excess Liquidity': cash_value * 1.02   # Approximate excess liquidity
+                'Buying Power': buying_power,
+                'Equity w/ Loan Value': equity_with_loan,
+                'Available Funds': cash_value + (nlv * 0.25),  # More realistic available funds
+                'Excess Liquidity': cash_value * 0.95,  # Conservative excess liquidity
+                'Unrealized PnL': 0,  # Placeholder - will be enhanced with real data
+                'Realized PnL': 0     # Placeholder - will be enhanced with real data
             })
         
-        # Add total row
+        # Add total row if multiple accounts
         if len(summary_data) > 1:
+            total_buying_power = total_nlv * 4
+            total_equity_with_loan = total_nlv - total_cash
+            
             summary_data.append({
-                'Account ID': 'Total',
+                'Account ID': 'TOTAL',
                 'Net Liquidation Value': total_nlv,
+                'Total Cash Value': total_cash,
                 'Securities Gross Position Value': total_gross_position,
-                'Cash': total_cash,
                 'Gross/NLV': total_gross_position / total_nlv if total_nlv != 0 else 0,
                 'Cash %': total_cash / total_nlv if total_nlv != 0 else 0,
-                'Available Funds': total_cash * 1.04,
-                'Excess Liquidity': total_cash * 1.02
+                'Buying Power': total_buying_power,
+                'Equity w/ Loan Value': total_equity_with_loan,
+                'Available Funds': total_cash + (total_nlv * 0.25),
+                'Excess Liquidity': total_cash * 0.95,
+                'Unrealized PnL': 0,
+                'Realized PnL': 0
             })
         
         return pd.DataFrame(summary_data)
     
     def _create_matrix_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
-        """Create position matrix sheet with asset class information."""
+        """Create portfolio matrix sheet matching the requested format exactly."""
         
-        # Collect all unique symbols and their asset classes
+        # Collect all unique symbols and their metadata
         all_symbols = set()
+        symbol_metadata = {}  # symbol -> {asset_class, instrument_name}
         account_data = {}
         
         for snapshot in multi_portfolio.snapshots:
@@ -166,18 +182,22 @@ class IBKRStandardExporter:
                 symbol = pos['Symbol']
                 all_symbols.add(symbol)
                 
-                # Get asset class from universe
-                asset_class = get_asset_class(symbol)
+                # Get metadata from universe (priority source as requested)
                 instrument_info = get_instrument_info(symbol)
+                asset_class = get_asset_class(symbol)
                 
-                positions_dict[symbol] = {
-                    'weight': pos['Weight_Pct'] / 100,  # Convert to decimal
-                    'market_value': pos.get('Market_Value', 0),
+                # Store metadata for later use
+                symbol_metadata[symbol] = {
                     'asset_class': asset_class or 'Unknown',
                     'instrument_name': instrument_info.instrument_name if instrument_info else symbol
                 }
+                
+                positions_dict[symbol] = {
+                    'weight': pos['Weight_Pct'],  # Keep as percentage for proper display
+                    'market_value': pos.get('Market_Value', 0)
+                }
             
-            # Calculate IBKR standard values
+            # Calculate account summary values
             nlv = float(account_summary['total_value'])
             cash_value = 0
             if snapshot.account_summary:
@@ -192,47 +212,117 @@ class IBKRStandardExporter:
                 'gross_position_value': gross_position_value
             }
         
-        # Sort symbols by asset class, then by symbol
-        def sort_key(symbol):
-            asset_class = get_asset_class(symbol) or 'ZZ_Unknown'
-            return (asset_class, symbol)
+        # Group symbols by asset class for proper layout
+        asset_classes = {}
+        for symbol in all_symbols:
+            asset_class = symbol_metadata[symbol]['asset_class']
+            if asset_class not in asset_classes:
+                asset_classes[asset_class] = []
+            asset_classes[asset_class].append(symbol)
         
-        sorted_symbols = sorted(all_symbols, key=sort_key)
+        # Sort asset classes and symbols within each class
+        sorted_asset_classes = sorted(asset_classes.keys())
+        for asset_class in asset_classes:
+            asset_classes[asset_class] = sorted(asset_classes[asset_class])
         
-        # Create matrix data
-        matrix_data = []
+        # Build the matrix in the exact format requested
+        matrix_rows = []
         
-        for account_id, data in account_data.items():
-            row = {'Account ID': account_id}
+        # Row 1: Portfolio Matrix header with asset class weight and asset weight sections
+        header_row1 = ['Portfolio Matrix', '', '', '', 'Asset class weight', '', '', 'Asset weight']
+        
+        # Add empty cells for remaining symbols
+        remaining_symbols = []
+        for asset_class in sorted_asset_classes:
+            remaining_symbols.extend(asset_classes[asset_class])
+        
+        header_row1.extend([''] * (len(remaining_symbols) - 1))  # -1 because we already added one under 'Asset weight'
+        matrix_rows.append(header_row1)
+        
+        # Row 2: Export Time and instrument names
+        export_time = datetime.now().strftime('%-m/%-d/%y %H:%M')
+        header_row2 = ['Export Time', export_time, '', '', '', '', '']
+        
+        # Add instrument names for each symbol
+        for symbol in remaining_symbols:
+            instrument_name = symbol_metadata[symbol]['instrument_name']
+            header_row2.append(instrument_name)
+        
+        matrix_rows.append(header_row2)
+        
+        # Row 3: Empty row
+        empty_row = [''] * len(header_row2)
+        matrix_rows.append(empty_row)
+        
+        # Row 4: Asset class row
+        asset_class_row = ['', '', '', '', 'Asset class', '', '']
+        
+        # Add asset class for each symbol
+        for symbol in remaining_symbols:
+            asset_class = symbol_metadata[symbol]['asset_class']
+            asset_class_row.append(asset_class)
+        
+        matrix_rows.append(asset_class_row)
+        
+        # Row 5: Column headers
+        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash %', 'Equity', 'Bond', 'Gold']
+        
+        # Add symbol codes as column headers
+        column_headers.extend(remaining_symbols)
+        matrix_rows.append(column_headers)
+        
+        # Data rows: One row per account
+        for account_id in sorted(account_data.keys()):
+            data = account_data[account_id]
             
-            # Add IBKR standard columns
-            row['Net Liquidation Value'] = data['nlv']
-            row['Securities Gross Position Value'] = data['gross_position_value']
-            row['Cash'] = data['cash']
-            row['Gross/NLV'] = data['gross_position_value'] / data['nlv'] if data['nlv'] != 0 else 0
-            row['Cash %'] = data['cash'] / data['nlv'] if data['nlv'] != 0 else 0
+            # Calculate asset class weights
+            equity_weight = 0
+            bond_weight = 0 
+            gold_weight = 0
             
-            # Add position weights for each symbol
-            current_asset_class = None
-            for symbol in sorted_symbols:
-                # Get asset class for grouping
-                asset_class = get_asset_class(symbol) or 'Unknown'
+            for symbol, pos_data in data['positions'].items():
+                asset_class = symbol_metadata[symbol]['asset_class'].lower()
+                weight_pct = pos_data['weight']
                 
+                if 'equity' in asset_class or 'etf' in asset_class:
+                    equity_weight += weight_pct
+                elif 'bond' in asset_class or 'fixed' in asset_class:
+                    bond_weight += weight_pct
+                elif 'gold' in asset_class or 'commodity' in asset_class:
+                    gold_weight += weight_pct
+            
+            # Build account row
+            account_row = [
+                account_id,
+                data['nlv'],
+                data['gross_position_value'] / data['nlv'] if data['nlv'] != 0 else 0,
+                data['cash'] / data['nlv'] if data['nlv'] != 0 else 0,
+                equity_weight,
+                bond_weight,
+                gold_weight
+            ]
+            
+            # Add individual symbol weights
+            for symbol in remaining_symbols:
                 if symbol in data['positions']:
                     weight = data['positions'][symbol]['weight']
                 else:
-                    weight = 0.0
-                
-                # Create column name with asset class prefix for better organization
-                if asset_class != current_asset_class:
-                    current_asset_class = asset_class
-                
-                col_name = f"{symbol}"  # Keep simple for now
-                row[col_name] = weight
+                    weight = 0
+                account_row.append(weight)
             
-            matrix_data.append(row)
+            matrix_rows.append(account_row)
         
-        df = pd.DataFrame(matrix_data)
+        # Convert to DataFrame
+        # Find the maximum row length to ensure all rows have the same number of columns
+        max_cols = max(len(row) for row in matrix_rows)
+        
+        # Pad shorter rows with empty strings
+        for row in matrix_rows:
+            while len(row) < max_cols:
+                row.append('')
+        
+        # Create DataFrame without headers (we'll handle headers in formatting)
+        df = pd.DataFrame(matrix_rows)
         return df
     
     def _create_metadata_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
@@ -264,55 +354,213 @@ class IBKRStandardExporter:
         return pd.DataFrame(metadata_data, columns=['Field', 'Value'])
     
     def _format_workbook(self, workbook: openpyxl.Workbook) -> None:
-        """Apply IBKR standard formatting to the workbook."""
+        """Apply sophisticated formatting to the workbook with freeze panes and proper styling."""
         
-        # Standard formatting styles
-        header_font = Font(bold=True, color='FFFFFF')
-        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        # Define sophisticated color scheme
+        primary_blue = '2E5090'      # Deep professional blue
+        secondary_blue = '4A6FA5'    # Medium blue
+        light_blue = 'E8F1FF'       # Very light blue background
+        header_gray = '404040'       # Dark gray for headers
+        light_gray = 'F5F5F5'       # Light gray background
+        white = 'FFFFFF'
+        
+        # Define fonts
+        header_font = Font(name='Calibri', size=11, bold=True, color=white)
+        subheader_font = Font(name='Calibri', size=10, bold=True, color=header_gray)
+        data_font = Font(name='Calibri', size=10, color='333333')
+        title_font = Font(name='Calibri', size=12, bold=True, color=primary_blue)
+        
+        # Define fills
+        header_fill = PatternFill(start_color=primary_blue, end_color=primary_blue, fill_type='solid')
+        subheader_fill = PatternFill(start_color=secondary_blue, end_color=secondary_blue, fill_type='solid')
+        light_fill = PatternFill(start_color=light_blue, end_color=light_blue, fill_type='solid')
+        
+        # Define borders
         thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
+            left=Side(style='thin', color='CCCCCC'),
+            right=Side(style='thin', color='CCCCCC'),
+            top=Side(style='thin', color='CCCCCC'),
+            bottom=Side(style='thin', color='CCCCCC')
+        )
+        
+        thick_border = Border(
+            left=Side(style='medium', color=primary_blue),
+            right=Side(style='medium', color=primary_blue),
+            top=Side(style='medium', color=primary_blue),
+            bottom=Side(style='medium', color=primary_blue)
         )
         
         for sheet_name in workbook.sheetnames:
             sheet = workbook[sheet_name]
             
-            # Format headers
-            if sheet.max_row > 0:
+            if sheet_name == 'Matrix':
+                self._format_matrix_sheet(sheet, header_font, subheader_font, data_font, title_font, 
+                                        header_fill, subheader_fill, light_fill, thin_border, thick_border)
+            elif sheet_name == 'Summary':
+                self._format_summary_sheet(sheet, header_font, data_font, header_fill, thin_border)
+            else:
+                self._format_generic_sheet(sheet, header_font, data_font, header_fill, thin_border)
+    
+    def _format_matrix_sheet(self, sheet, header_font, subheader_font, data_font, title_font, 
+                           header_fill, subheader_fill, light_fill, thin_border, thick_border):
+        """Apply special formatting to Matrix sheet with freeze panes."""
+        
+        if sheet.max_row == 0:
+            return
+            
+        # Row 1: Portfolio Matrix title
+        sheet.cell(row=1, column=1).font = title_font
+        sheet.cell(row=1, column=1).fill = light_fill
+        
+        # Merge cells for main sections
+        if sheet.max_column >= 8:
+            # Merge Portfolio Matrix title
+            sheet.merge_cells('A1:D1')
+            sheet.merge_cells('E1:G1')  # Asset class weight section
+            sheet.merge_cells('H1:' + chr(ord('H') + sheet.max_column - 8))  # Asset weight section
+            
+        # Row 2: Export time and instrument names
+        sheet.cell(row=2, column=1).font = subheader_font
+        sheet.cell(row=2, column=2).font = data_font
+        
+        # Row 4: Asset class labels
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row=4, column=col)
+            if cell.value:
+                cell.font = subheader_font
+                cell.fill = light_fill
+        
+        # Row 5: Column headers (main data headers)
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row=5, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = thick_border
+        
+        # Data rows (6 onwards)
+        for row in range(6, sheet.max_row + 1):
+            for col in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=row, column=col)
+                cell.font = data_font
+                cell.border = thin_border
+                
+                # Apply number formatting based on column content
+                header_cell = sheet.cell(row=5, column=col)
+                if header_cell.value and isinstance(cell.value, (int, float)):
+                    header_text = str(header_cell.value)
+                    
+                    if 'Net Liquidation Value' in header_text:
+                        cell.number_format = '#,##0.00'
+                    elif 'Gross/NLV' in header_text or 'Cash %' in header_text:
+                        cell.number_format = '0.00%' 
+                    elif any(term in header_text for term in ['Equity', 'Bond', 'Gold']) and col <= 7:
+                        cell.number_format = '0.00%'
+                    elif col > 7:  # Individual symbol weights
+                        cell.number_format = '0.00%'
+        
+        # Set column widths
+        column_widths = {
+            'A': 12,  # Account
+            'B': 18,  # Net Liquidation Value
+            'C': 12,  # Gross/NLV
+            'D': 10,  # Cash %
+            'E': 10,  # Equity
+            'F': 10,  # Bond
+            'G': 10,  # Gold
+        }
+        
+        for col_letter, width in column_widths.items():
+            sheet.column_dimensions[col_letter].width = width
+        
+        # Set width for symbol columns
+        for col in range(8, sheet.max_column + 1):
+            col_letter = chr(ord('A') + col - 1)
+            sheet.column_dimensions[col_letter].width = 8
+        
+        # Freeze panes: Freeze first 4 columns and first 5 rows
+        sheet.freeze_panes = 'E6'
+        
+        # Add alternating row colors for data rows
+        for row in range(6, sheet.max_row + 1):
+            if row % 2 == 0:  # Even rows
                 for col in range(1, sheet.max_column + 1):
-                    cell = sheet.cell(row=1, column=col)
-                    cell.font = header_font
-                    cell.fill = header_fill
-                    cell.alignment = Alignment(horizontal='center')
+                    cell = sheet.cell(row=row, column=col)
+                    if not cell.fill.start_color.rgb:
+                        cell.fill = PatternFill(start_color='F8F9FA', end_color='F8F9FA', fill_type='solid')
+    
+    def _format_summary_sheet(self, sheet, header_font, data_font, header_fill, thin_border):
+        """Apply formatting to Summary sheet."""
+        
+        if sheet.max_row == 0:
+            return
             
-            # Auto-adjust column widths
-            for column in sheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if cell.value and len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 25)
-                sheet.column_dimensions[column_letter].width = adjusted_width
+        # Format headers
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.border = thin_border
+        
+        # Format data rows
+        for row in range(2, sheet.max_row + 1):
+            for col in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=row, column=col)
+                cell.font = data_font
+                cell.border = thin_border
+                
+                # Number formatting based on column headers
+                header_cell = sheet.cell(row=1, column=col)
+                if header_cell.value and isinstance(cell.value, (int, float)):
+                    header_text = str(header_cell.value)
+                    
+                    if any(term in header_text for term in ['Value', 'Cash', 'Funds', 'Liquidity']):
+                        cell.number_format = '#,##0.00'
+                    elif '%' in header_text or 'NLV' in header_text:
+                        cell.number_format = '0.00%'
+        
+        # Auto-adjust column widths
+        for column in sheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 3, 20)
+            sheet.column_dimensions[column_letter].width = adjusted_width
+    
+    def _format_generic_sheet(self, sheet, header_font, data_font, header_fill, thin_border):
+        """Apply generic formatting to other sheets."""
+        
+        if sheet.max_row == 0:
+            return
             
-            # Add borders to data area
-            if sheet.max_row > 0 and sheet.max_column > 0:
-                for row in range(1, sheet.max_row + 1):
-                    for col in range(1, sheet.max_column + 1):
-                        cell = sheet.cell(row=row, column=col)
-                        cell.border = thin_border
-                        
-                        # Format numbers
-                        if isinstance(cell.value, (int, float)) and row > 1:
-                            if 'Cash' in str(sheet.cell(row=1, column=col).value) or 'Value' in str(sheet.cell(row=1, column=col).value):
-                                cell.number_format = '#,##0.00'
-                            elif '%' in str(sheet.cell(row=1, column=col).value) or 'NLV' in str(sheet.cell(row=1, column=col).value):
-                                cell.number_format = '0.00%'
+        # Format headers
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center')
+        
+        # Auto-adjust column widths and add borders
+        for column in sheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                    cell.border = thin_border
+                    if cell.row > 1:
+                        cell.font = data_font
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 25)
+            sheet.column_dimensions[column_letter].width = adjusted_width
 
 
 # Global instance for easy access

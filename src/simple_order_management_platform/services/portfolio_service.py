@@ -260,6 +260,7 @@ class PortfolioService:
                     
                     # Apply cached prices if configured
                     if self.use_cached_prices and position.symbol:
+                        from ..services.market_data_service import market_data_service
                         cached_price_data = market_data_service.get_cached_price(position.symbol)
                         if cached_price_data:
                             # Update market price with cached price

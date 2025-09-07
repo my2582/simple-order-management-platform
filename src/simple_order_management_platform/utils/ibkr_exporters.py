@@ -417,7 +417,12 @@ class IBKRStandardExporter:
             # Merge Portfolio Matrix title
             sheet.merge_cells('A1:D1')
             sheet.merge_cells('E1:G1')  # Asset class weight section
-            sheet.merge_cells('H1:' + chr(ord('H') + sheet.max_column - 8))  # Asset weight section
+            
+            # Calculate end column for Asset weight section
+            end_col = sheet.max_column
+            if end_col >= 8:
+                end_col_letter = chr(ord('A') + end_col - 1)
+                sheet.merge_cells(f'H1:{end_col_letter}1')  # Asset weight section
             
         # Row 2: Export time and instrument names
         sheet.cell(row=2, column=1).font = subheader_font

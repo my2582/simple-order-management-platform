@@ -9,6 +9,19 @@
 [![Production Ready](https://img.shields.io/badge/Production-Ready-success.svg)](#-deployment-infrastructure)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+## 📋 **목차**
+
+1. [🎯 핵심 목표 달성](#-4개-핵심-목표-완전-달성)
+2. [🚀 빠른 시작](#-빠른-시작)
+3. [📊 IBKR 표준 Excel 출력](#-ibkr-표준-excel-출력-형식)
+4. [🛠️ CLI 인터페이스](#️-포괄적-cli-인터페이스)
+5. [🚀 간소화된 CLI 단축 명령어](#-간소화된-cli-단축-명령어)
+6. [👥 **실무진을 위한 실용 가이드**](#-실무진을-위한-실용-가이드) ⭐ **신규**
+7. [⚙️ 역할 기반 접근 제어](#️-역할-기반-접근-제어)
+8. [📈 마켓 데이터 캐싱](#-마켓-데이터-캐싱-시스템)
+9. [🕐 Singapore Timezone 스케줄링](#-singapore-timezone-스케줄링)
+10. [🛠️ 배포 인프라](#️-배포-인프라스트럭처)
+
 ## 🎯 **4개 핵심 목표 완전 달성**
 
 ### ✅ **Goal 1: 일일 자동 포트폴리오 포지션 업데이트**
@@ -223,6 +236,168 @@ python3 -m simple_order_management_platform.cli test-integrations
 # 사용 가능한 모델 포트폴리오 확인
 python3 -m simple_order_management_platform.cli list-portfolios
 ```
+
+## 👥 **실무진을 위한 실용 가이드**
+
+### 🎯 **주요 업무별 명령어 가이드**
+
+#### 📊 **1. 고객 포트폴리오 현황 확인하기**
+**언제 사용**: 고객 문의 시, 포트폴리오 보고서 작성 시, 월말/분기말 정산 시
+
+```bash
+# 🚀 간단한 방법 (추천)
+./download-positions
+
+# 📈 특정 고객 계좌만 확인
+./download-positions --accounts DU123456
+
+# ⚡ 빠른 확인 (캐시된 가격 사용)
+./download-positions-cached --accounts DU123456,DU789012
+```
+
+**결과물**: 
+- Excel 파일이 `./data/output/` 폴더에 생성됨
+- IBKR 표준 형식 (Summary + Matrix 시트)
+- SharePoint에 자동 업로드 (설정된 경우)
+
+#### 📈 **2. 유니버스 종목 가격 업데이트하기**  
+**언제 사용**: 장 마감 후, 포트폴리오 평가 전, 리밸런싱 계산 전
+
+```bash
+# 🔄 일반 업데이트 (24시간 이내면 스킵)
+./update-market-data
+
+# ⚡ 강제 업데이트 (최신 가격 필수)
+./update-market-data --force
+
+# 📊 현재 가격 데이터 상태 확인
+./market-data-status
+```
+
+**확인 방법**:
+```bash
+./market-data-status
+# ✅ Cache Status: FRESH (Age: 2.3 hours)
+# 📅 Last Updated: 2025-09-07 14:30:15 +08  
+# 📊 Cached Symbols: 450+ symbols
+```
+
+#### 🔄 **3. 완전한 일일 업데이트 실행하기**
+**언제 사용**: 매일 업무 시작 시, 전체 데이터 동기화 필요 시
+
+```bash
+# 🚀 원클릭 전체 업데이트
+./run-daily-update
+
+# 이 명령어는 다음을 자동 실행:
+# 1️⃣ 마켓 데이터 업데이트
+# 2️⃣ 전체 계좌 포지션 다운로드  
+# 3️⃣ Excel 보고서 생성
+# 4️⃣ SharePoint 업로드
+# 5️⃣ 이메일 발송
+```
+
+#### 📝 **4. 고객 주문서 생성하기**
+**언때 사용**: 고객 입금/출금/리밸런싱 요청 시
+
+```bash
+# 💰 입금 주문서 (신규 투자)
+./generate-orders DU123456 B301 --type deposit --amount 50000
+
+# 💸 출금 주문서 (자금 인출)
+./generate-orders DU123456 B301 --type withdrawal --amount 20000
+
+# ⚖️ 리밸런싱 주문서 (포트폴리오 조정)
+./generate-orders DU123456 B301 --type rebalance --amount 150000
+
+# 📋 사용 가능한 모델 포트폴리오 확인
+./list-portfolios
+```
+
+### 💡 **일반적인 업무 시나리오**
+
+#### 🌅 **매일 아침 업무 시작 시**
+```bash
+# 1. 시스템 상태 체크
+./test-integrations
+
+# 2. 데이터 업데이트
+./update-market-data
+
+# 3. 전체 포지션 다운로드  
+./download-positions
+
+# ✅ 결과: 최신 데이터로 업데이트된 포트폴리오 보고서 완성
+```
+
+#### 📞 **고객 문의 응대 시**
+```bash
+# 빠른 포지션 확인 (캐시 사용)
+./download-positions-cached --accounts DU123456
+
+# 특정 고객 계좌만 즉시 확인 가능
+# 처리시간: ~30초 (vs 실시간 다운로드 3-5분)
+```
+
+#### 📊 **월말 보고서 작성 시**
+```bash
+# 1. 최신 가격으로 강제 업데이트
+./update-market-data --force
+
+# 2. 전체 고객 포지션 다운로드
+./download-positions  
+
+# 3. 결과 파일을 회계팀에 공유
+# 파일 위치: ./data/output/portfolio_positions_YYYYMMDD_HHMMSS.xlsx
+```
+
+#### 🔧 **시스템 문제 발생 시**
+```bash
+# 1. IBKR 연결 상태 확인  
+./test-connection
+
+# 2. 전체 통합 테스트
+./test-integrations
+
+# 3. 스케줄러 상태 확인
+./scheduler-status
+
+# 4. 수동으로 특정 계좌만 테스트
+./download-positions --accounts DU123456 --ib-port 4001
+```
+
+### ⚠️ **중요 주의사항**
+
+#### 🔐 **IBKR Gateway 연결**
+- **Live 포트**: 4001 (실제 계좌)
+- **Paper 포트**: 4002 (연습 계좌)  
+- 명령어 실행 전 IB Gateway 실행 필수
+
+#### ⏱️ **실행 시간 가이드**
+- `./update-market-data`: 2-5분 (종목 수에 따라)
+- `./download-positions`: 3-8분 (계좌 수에 따라)
+- `./download-positions-cached`: 30초-1분 (캐시 사용)
+- `./run-daily-update`: 10-15분 (전체 프로세스)
+
+#### 📁 **파일 저장 위치**
+- **포트폴리오 보고서**: `./data/output/`
+- **마켓 데이터**: `./data/market_data_cache/`  
+- **주문서**: `./data/output/`
+- **로그 파일**: 터미널에 실시간 표시
+
+### 🆘 **도움말 및 지원**
+
+```bash
+# 💡 전체 명령어 목록 보기
+./simple-order-help
+
+# 📖 특정 명령어 도움말
+./download-positions --help
+./generate-orders --help
+./update-market-data --help
+```
+
+**문제 발생 시**: 로그 메시지 확인 후 시스템 관리자에게 전달
 
 ## ⚙️ **역할 기반 접근 제어**
 

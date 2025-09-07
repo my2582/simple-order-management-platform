@@ -291,21 +291,22 @@ class IBKRStandardExporter:
                 elif 'gold' in asset_class or 'commodity' in asset_class:
                     gold_weight += weight_pct
             
-            # Build account row
+            # Build account row with proper number formatting
+            # Convert percentages to decimals for Excel percentage formatting
             account_row = [
                 account_id,
-                data['nlv'],
-                data['gross_position_value'] / data['nlv'] if data['nlv'] != 0 else 0,
-                data['cash'] / data['nlv'] if data['nlv'] != 0 else 0,
-                equity_weight,
-                bond_weight,
-                gold_weight
+                data['nlv'],  # Will be formatted as #,###.00 in Excel
+                (data['gross_position_value'] / data['nlv']) if data['nlv'] != 0 else 0,  # Will be formatted as 0.00
+                (data['cash'] / data['nlv']) if data['nlv'] != 0 else 0,  # Will be formatted as 0.00% in Excel
+                equity_weight / 100.0 if equity_weight != 0 else 0,  # Convert to decimal for Excel % formatting
+                bond_weight / 100.0 if bond_weight != 0 else 0,
+                gold_weight / 100.0 if gold_weight != 0 else 0
             ]
             
-            # Add individual symbol weights
+            # Add individual symbol weights (convert to decimals for Excel percentage formatting)
             for symbol in remaining_symbols:
                 if symbol in data['positions']:
-                    weight = data['positions'][symbol]['weight']
+                    weight = data['positions'][symbol]['weight'] / 100.0 if data['positions'][symbol]['weight'] != 0 else 0
                 else:
                     weight = 0
                 account_row.append(weight)
@@ -408,11 +409,28 @@ class IBKRStandardExporter:
         if sheet.max_row == 0:
             return
             
-        # Row 1: Portfolio Matrix title
-        sheet.cell(row=1, column=1).font = title_font
-        sheet.cell(row=1, column=1).fill = light_fill
+        # Row 1: Professional section headers with enhanced styling
+        # Portfolio Matrix title
+        title_cell = sheet.cell(row=1, column=1)
+        title_cell.font = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
+        title_cell.fill = PatternFill(start_color='2E5090', end_color='2E5090', fill_type='solid')
+        title_cell.alignment = Alignment(horizontal='center', vertical='center')
         
-        # Merge cells for main sections
+        # Asset class weight section header
+        asset_class_cell = sheet.cell(row=1, column=5)
+        asset_class_cell.value = 'Asset class weight'
+        asset_class_cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+        asset_class_cell.fill = PatternFill(start_color='4A6FA5', end_color='4A6FA5', fill_type='solid')
+        asset_class_cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Asset weight section header
+        asset_weight_cell = sheet.cell(row=1, column=8)
+        asset_weight_cell.value = 'Asset weight'
+        asset_weight_cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+        asset_weight_cell.fill = PatternFill(start_color='4A6FA5', end_color='4A6FA5', fill_type='solid')
+        asset_weight_cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Merge cells for section headers
         if sheet.max_column >= 8:
             # Merge Portfolio Matrix title
             sheet.merge_cells('A1:D1')
@@ -423,17 +441,47 @@ class IBKRStandardExporter:
             if end_col >= 8:
                 end_col_letter = chr(ord('A') + end_col - 1)
                 sheet.merge_cells(f'H1:{end_col_letter}1')  # Asset weight section
-            
-        # Row 2: Export time and instrument names
-        sheet.cell(row=2, column=1).font = subheader_font
-        sheet.cell(row=2, column=2).font = data_font
         
-        # Row 4: Asset class labels
+        # Apply styling to merged cells
+        for col in range(1, 5):  # Portfolio Matrix section
+            cell = sheet.cell(row=1, column=col)
+            cell.font = Font(name='Calibri', size=14, bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='2E5090', end_color='2E5090', fill_type='solid')
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        for col in range(5, 8):  # Asset class weight section  
+            cell = sheet.cell(row=1, column=col)
+            cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='4A6FA5', end_color='4A6FA5', fill_type='solid')
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+        for col in range(8, sheet.max_column + 1):  # Asset weight section
+            cell = sheet.cell(row=1, column=col)
+            cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='4A6FA5', end_color='4A6FA5', fill_type='solid')
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            
+        # Row 2: Export time with enhanced styling
+        export_time_cell = sheet.cell(row=2, column=1)
+        export_time_cell.font = Font(name='Calibri', size=10, bold=True, color='2E5090')
+        
+        export_value_cell = sheet.cell(row=2, column=2)
+        export_value_cell.font = Font(name='Calibri', size=10, color='333333')
+        
+        # Row 2: Instrument names with subtle styling
+        for col in range(8, sheet.max_column + 1):
+            cell = sheet.cell(row=2, column=col)
+            if cell.value:
+                cell.font = Font(name='Calibri', size=9, color='666666')
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Row 4: Asset class labels with enhanced styling
         for col in range(1, sheet.max_column + 1):
             cell = sheet.cell(row=4, column=col)
             if cell.value:
-                cell.font = subheader_font
-                cell.fill = light_fill
+                cell.font = Font(name='Calibri', size=10, bold=True, color='2E5090')
+                cell.fill = PatternFill(start_color='F0F5FF', end_color='F0F5FF', fill_type='solid')
+                cell.alignment = Alignment(horizontal='center', vertical='center')
         
         # Row 5: Column headers (main data headers)
         for col in range(1, sheet.max_column + 1):
@@ -450,49 +498,100 @@ class IBKRStandardExporter:
                 cell.font = data_font
                 cell.border = thin_border
                 
-                # Apply number formatting based on column content
+                # Apply sophisticated number formatting based on column content
                 header_cell = sheet.cell(row=5, column=col)
                 if header_cell.value and isinstance(cell.value, (int, float)):
                     header_text = str(header_cell.value)
                     
+                    # Net Liquidation Value: Currency format with commas
                     if 'Net Liquidation Value' in header_text:
                         cell.number_format = '#,##0.00'
-                    elif 'Gross/NLV' in header_text or 'Cash %' in header_text:
-                        cell.number_format = '0.00%' 
+                        cell.alignment = Alignment(horizontal='right', vertical='center')
+                    
+                    # Gross/NLV ratio: Plain decimal format  
+                    elif 'Gross/NLV' in header_text:
+                        cell.number_format = '0.00'
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Cash percentage: Percentage format
+                    elif 'Cash %' in header_text:
+                        cell.number_format = '0.00%'
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Asset class weights (Equity, Bond, Gold): Percentage format (0.00%)
                     elif any(term in header_text for term in ['Equity', 'Bond', 'Gold']) and col <= 7:
                         cell.number_format = '0.00%'
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                        # Add subtle highlighting for non-zero asset class weights
+                        if cell.value > 0:
+                            cell.fill = PatternFill(start_color='E8F5E8', end_color='E8F5E8', fill_type='solid')
+                            cell.font = Font(name='Calibri', size=10, bold=True, color='2E5090')
+                    
+                    # Individual symbol weights: Percentage format (0.00%) with highlighting
                     elif col > 7:  # Individual symbol weights
                         cell.number_format = '0.00%'
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                        # Highlight non-zero positions with subtle background
+                        if cell.value > 0:
+                            cell.fill = PatternFill(start_color='FFF2E8', end_color='FFF2E8', fill_type='solid')
+                            cell.font = Font(name='Calibri', size=10, bold=True, color='B8860B')
+                
+                # Account name column - left align
+                elif col == 1:
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
+                    cell.font = Font(name='Calibri', size=10, bold=True, color='2E5090')
         
-        # Set column widths
+        # Set optimized column widths for professional appearance
         column_widths = {
-            'A': 12,  # Account
-            'B': 18,  # Net Liquidation Value
-            'C': 12,  # Gross/NLV
-            'D': 10,  # Cash %
-            'E': 10,  # Equity
-            'F': 10,  # Bond
-            'G': 10,  # Gold
+            'A': 15,  # Account - wider for account names
+            'B': 20,  # Net Liquidation Value - wider for currency values
+            'C': 10,  # Gross/NLV - compact for ratios
+            'D': 10,  # Cash % - compact for percentages
+            'E': 10,  # Equity - compact for percentages
+            'F': 10,  # Bond - compact for percentages
+            'G': 10,  # Gold - compact for percentages
         }
         
         for col_letter, width in column_widths.items():
             sheet.column_dimensions[col_letter].width = width
         
-        # Set width for symbol columns
+        # Set width for individual symbol columns (make them more readable)
         for col in range(8, sheet.max_column + 1):
             col_letter = chr(ord('A') + col - 1)
-            sheet.column_dimensions[col_letter].width = 8
+            sheet.column_dimensions[col_letter].width = 10  # Increased from 8 to 10 for better readability
         
         # Freeze panes: Freeze first 4 columns and first 5 rows
         sheet.freeze_panes = 'E6'
         
-        # Add alternating row colors for data rows
+        # Add professional alternating row colors for data rows
         for row in range(6, sheet.max_row + 1):
-            if row % 2 == 0:  # Even rows
+            if row % 2 == 0:  # Even rows get subtle background
                 for col in range(1, sheet.max_column + 1):
                     cell = sheet.cell(row=row, column=col)
-                    if not cell.fill.start_color.rgb:
+                    # Only apply alternating color if cell doesn't already have conditional formatting
+                    if not hasattr(cell.fill, 'start_color') or cell.fill.start_color.rgb in [None, 'FFFFFF', '00000000']:
                         cell.fill = PatternFill(start_color='F8F9FA', end_color='F8F9FA', fill_type='solid')
+        
+        # Add separator lines between major sections
+        # Vertical separator between account info and asset class weights (column D)
+        for row in range(5, sheet.max_row + 1):
+            cell = sheet.cell(row=row, column=4)  # Column D
+            cell.border = Border(
+                left=cell.border.left,
+                right=Side(style='medium', color='2E5090'),
+                top=cell.border.top,
+                bottom=cell.border.bottom
+            )
+        
+        # Vertical separator between asset class weights and individual weights (column G) 
+        for row in range(5, sheet.max_row + 1):
+            cell = sheet.cell(row=row, column=7)  # Column G
+            cell.border = Border(
+                left=cell.border.left,
+                right=Side(style='medium', color='2E5090'),
+                top=cell.border.top,
+                bottom=cell.border.bottom
+            )
     
     def _format_summary_sheet(self, sheet, header_font, data_font, header_fill, thin_border):
         """Apply formatting to Summary sheet."""

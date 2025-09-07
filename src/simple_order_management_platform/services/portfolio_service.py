@@ -20,14 +20,16 @@ logger = logging.getLogger(__name__)
 class PortfolioService:
     """Service for downloading and managing portfolio positions from IBKR."""
     
-    def __init__(self, ib_provider: IBProvider):
+    def __init__(self, ib_provider: IBProvider, use_cached_prices: bool = False):
         """Initialize portfolio service.
         
         Args:
             ib_provider: Interactive Brokers provider instance
+            use_cached_prices: Whether to use cached prices for position valuation
         """
         self.ib_provider = ib_provider
         self.ib: IB = ib_provider.connector.ib
+        self.use_cached_prices = use_cached_prices
     
     def get_all_accounts(self) -> List[str]:
         """Get all managed account IDs.

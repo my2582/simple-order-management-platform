@@ -233,7 +233,7 @@ simple-order test-connection
 simple-order list-portfolios
 
 # 4. 샘플 데이터 다운로드 시도
-simple-order download-positions --accounts DU123456 --output test.xlsx
+simple-order positions --accounts DU123456 --output test.xlsx
 ```
 
 ### 2. 종속성 확인

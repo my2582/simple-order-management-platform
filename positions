@@ -1,6 +1,6 @@
 #!/bin/bash
 # Simple wrapper for downloading positions
-# Usage: ./download-positions [OPTIONS]
+# Usage: ./positions [OPTIONS]
 
 cd "$(dirname "$0")" || exit 1
 exec python3 -m simple_order_management_platform.cli download-positions-ibkr "$@"

@@ -27,8 +27,8 @@
 
 ### 📊 포트폴리오 관리
 ```bash
-./download-positions         # 실시간 가격으로 포지션 다운로드
-./download-positions-cached  # 캐시된 가격으로 빠른 다운로드
+./positions         # 실시간 가격으로 포지션 다운로드
+./positions-cached  # 캐시된 가격으로 빠른 다운로드
 ./run-daily-update          # 전체 일일 업데이트 워크플로우
 ```
 
@@ -61,7 +61,7 @@
 ./update-market-data
 
 # 3. 포트폴리오 다운로드
-./download-positions --accounts DU123456
+./positions --accounts DU123456
 
 # 4. 필요시 주문 생성
 ./generate-orders DU123456 B301 --type rebalance --amount 150000
@@ -85,7 +85,7 @@
 ./market-data-status
 
 # 캐시된 가격으로 빠른 포지션 다운로드
-./download-positions-cached --accounts DU123456,DU789012
+./positions-cached --accounts DU123456,DU789012
 ```
 
 ## 🔧 기술적 세부사항
@@ -124,7 +124,7 @@ python3 -m simple_order_management_platform.cli generate-orders DU123456 B301 --
 ### After (개선됨)  
 ```bash
 ./update-market-data --force
-./download-positions --accounts DU123456
+./positions --accounts DU123456
 ./generate-orders DU123456 B301 --type rebalance --amount 100000
 ```
 

@@ -21,7 +21,8 @@ class EmailIntegration:
         smtp_server: str,
         smtp_port: int,
         sender_email: str,
-        use_tls: bool = True
+        use_tls: bool = True,
+        password: str = None
     ):
         """
         Initialize email integration.
@@ -31,16 +32,17 @@ class EmailIntegration:
             smtp_port: SMTP server port
             sender_email: Sender email address
             use_tls: Whether to use TLS encryption
+            password: Email password (optional, will try env var if not provided)
         """
         self.smtp_server = smtp_server
         self.smtp_port = smtp_port
         self.sender_email = sender_email
         self.use_tls = use_tls
         
-        # Try to get password from environment variable
-        self.password = os.environ.get('EMAIL_PASSWORD')
+        # Try to get password from: 1) parameter, 2) environment variable
+        self.password = password or os.environ.get('EMAIL_PASSWORD')
         if not self.password:
-            logger.warning("No EMAIL_PASSWORD environment variable found. Email sending may fail.")
+            logger.warning("No email password found in config or EMAIL_PASSWORD environment variable. Email sending may fail.")
     
     def set_password(self, password: str) -> None:
         """Set email password manually."""
@@ -466,7 +468,8 @@ def create_email_integration() -> EmailIntegration:
         smtp_server=email_config.get('smtp_server', 'smtp.office365.com'),
         smtp_port=email_config.get('smtp_port', 587),
         sender_email=email_config.get('sender', 'minsu.yeom@arkifinance.com'),
-        use_tls=email_config.get('use_tls', True)
+        use_tls=email_config.get('use_tls', True),
+        password=email_config.get('password')  # Get password from config
     )
 
 

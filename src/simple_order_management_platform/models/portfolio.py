@@ -29,7 +29,7 @@ class Position(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
         
     def get_absolute_position_value(self) -> Optional[Decimal]:
@@ -61,7 +61,7 @@ class AccountSummary(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
 
 
@@ -75,7 +75,7 @@ class PortfolioSnapshot(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
     
     def get_total_portfolio_value(self) -> Optional[Decimal]:
@@ -160,7 +160,7 @@ class MultiAccountPortfolio(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
     
     def add_snapshot(self, snapshot: PortfolioSnapshot) -> None:

@@ -10,6 +10,11 @@ app:
     universes_dir: "./config/universes"
     sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading"
     project_sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading/simple-order-management-platform"
+    # Local storage mode (safer for testing)
+    local_root: "/Users/msyeom/arki"
+    local_output_dir: "/Users/msyeom/arki/portfolio-reports"
+    local_market_data_dir: "/Users/msyeom/arki/market-data"
+    local_backup_dir: "/Users/msyeom/arki/backups"
   
   logging:
     level: "INFO"
@@ -22,6 +27,13 @@ app:
     smtp_server: "smtp.office365.com"
     smtp_port: 587
     use_tls: true
+    password: null  # Set email password here or use EMAIL_PASSWORD env var
+  
+  # Storage mode configuration
+  storage:
+    mode: "local"  # Options: "sharepoint" or "local"
+    # sharepoint: Use SharePoint/OneDrive for production
+    # local: Use local directories for testing/development
   
   # Scheduling configuration (Singapore timezone)
   scheduling:
@@ -34,9 +46,10 @@ app:
     portfolio_manager:
       description: "Portfolio Manager - Full trading access"
       host: "127.0.0.1"
-      port: 4002  # Paper trading port
+      port: 7497  # TWS default port (7497 for TWS, 4002 for IB Gateway)
       client_id: 1
       timeout: 30
+      alternative_ports: [4002, 7496, 7497]  # Try these ports if connection fails
       permissions:
         - "portfolio_download"
         - "order_generation"
@@ -45,9 +58,10 @@ app:
     trade_assistant:
       description: "Trade Assistant - Market data access only"
       host: "127.0.0.1"
-      port: 4002  # Same as portfolio manager for now (can be different)
+      port: 7497  # Same as portfolio manager for now (can be different)
       client_id: 2
       timeout: 30
+      alternative_ports: [4002, 7496, 7497]  # Try these ports if connection fails
       permissions:
         - "market_data"
         - "universe_update"
@@ -56,6 +70,8 @@ app:
   # Legacy IB settings (for backward compatibility)
   ib:
     host: "127.0.0.1"
-    port: 4002
+    port: 7497  # TWS default port (7497 for TWS, 4002 for IB Gateway)
     client_id: 1
     timeout: 30
+    # Alternative ports to try if connection fails
+    alternative_ports: [4002, 7496, 7497]

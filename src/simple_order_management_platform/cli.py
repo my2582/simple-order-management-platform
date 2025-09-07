@@ -10,6 +10,16 @@ from rich.table import Table
 
 from .config.loader import config_loader
 from .core.connector import IBConnector
+
+def get_ib_connection_params(app_config, ib_host=None, ib_port=None, ib_client_id=None):
+    """Get IB connection parameters with alternative ports support."""
+    ib_settings = app_config.ib_settings
+    host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
+    port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
+    client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+    alternative_ports = ib_settings.get("alternative_ports", [4002, 7496, 7497])
+    
+    return host, port, client_id, alternative_ports
 from .core.orchestrator import DataOrchestrator
 from .providers.ib import IBProvider
 from .models.base import InstrumentType
@@ -85,7 +95,7 @@ def download(
         # Get IB connection settings with overrides
         ib_settings = app_config.ib_settings
         host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
         client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
         # Execute download with IB connection
@@ -151,7 +161,7 @@ def test_connection(
         ib_settings = app_config.ib_settings
         
         host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
         client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
         with IBConnector(host=host, port=port, client_id=client_id) as connector:
@@ -225,7 +235,7 @@ def update_master(
         ib_settings = app_config.ib_settings
         
         host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
         client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
         # Master Manager 초기화
@@ -346,7 +356,7 @@ def download_positions(
         # Get IB connection settings with overrides
         ib_settings = app_config.ib_settings
         host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
         client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
         # Execute download with IB connection
@@ -430,14 +440,11 @@ def download_positions_ibkr(
         # Load app configuration
         app_config = config_loader.load_app_config()
         
-        # Get IB connection settings with overrides
-        ib_settings = app_config.ib_settings
-        host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
-        client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
+        # Get IB connection parameters with alternative ports
+        host, port, client_id, alternative_ports = get_ib_connection_params(app_config, ib_host, ib_port, ib_client_id)
 
         # Execute download with IB connection
-        with IBConnector(host=host, port=port, client_id=client_id) as connector:
+        with IBConnector(host=host, port=port, client_id=client_id, alternative_ports=alternative_ports) as connector:
             provider = IBProvider(connector)
             portfolio_service = PortfolioService(provider)
 
@@ -779,7 +786,7 @@ def download_positions_cached(
         # Get IB connection settings with overrides
         ib_settings = app_config.ib_settings
         host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
         client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
         # Execute download with IB connection (using cached prices)
@@ -912,7 +919,7 @@ def generate_orders(
             app_config = config_loader.load_app_config()
             ib_settings = app_config.ib_settings
             host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-            port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+            port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
             client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
             with IBConnector(host=host, port=port, client_id=client_id) as connector:
@@ -1302,24 +1309,22 @@ def update_market_data():
         console.print(f"Start time (SGT): {start_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         console.print(f"Role: Trade Assistant")
         
-        async def update_cache():
+        def update_cache():
             # Create market data service
-            market_data_service = MarketDataService(config)
+            market_data_service = MarketDataService()
             
             with console.status("[bold green]Updating market data cache..."):
-                # Update cache using Trade Assistant role
-                await market_data_service.update_cache(role=UserRole.TRADE_ASSISTANT)
+                # Update universe prices using Trade Assistant role
+                market_data_service.update_universe_prices(force_update=False, max_age_hours=24.0)
             
             with console.status("[bold green]Exporting market data report..."):
                 # Export market data report
-                output_file = await market_data_service.export_market_data(
-                    filename_suffix="manual"
-                )
+                output_file = market_data_service.export_market_data_report()
             
             return output_file
         
         # Run the update
-        output_file = asyncio.run(update_cache())
+        output_file = update_cache()
         
         end_time = datetime.now(singapore_tz)
         duration = (end_time - start_time).total_seconds()
@@ -1407,7 +1412,7 @@ def download_positions_cached(
         # Get IB connection settings with overrides
         ib_settings = app_config.ib_settings
         host = ib_host if ib_host is not None else ib_settings.get("host", "127.0.0.1")
-        port = ib_port if ib_port is not None else ib_settings.get("port", 4001)
+        port = ib_port if ib_port is not None else ib_settings.get("port", 7497)
         client_id = ib_client_id if ib_client_id is not None else ib_settings.get("client_id", 1)
 
         # Execute download with IB connection but using cached prices

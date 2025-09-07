@@ -427,6 +427,14 @@ def download_positions_ibkr(
         None, "--output", "-o",
         help="Output Excel filename. Default: auto-generated with timestamp"
     ),
+    read_only_mode: bool = typer.Option(
+        True, "--read-only/--allow-subscriptions",
+        help="Use strict read-only mode to avoid any write permission requests (default: True)"
+    ),
+    ultra_safe_mode: bool = typer.Option(
+        False, "--ultra-safe",
+        help="Use ultra-safe mode with minimal API calls (may have limited data)"
+    ),
     # IB connection overrides
     ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
     ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
@@ -446,7 +454,18 @@ def download_positions_ibkr(
         # Execute download with IB connection
         with IBConnector(host=host, port=port, client_id=client_id, alternative_ports=alternative_ports) as connector:
             provider = IBProvider(connector)
-            portfolio_service = PortfolioService(provider)
+            
+            # Configure portfolio service based on read-only mode
+            if ultra_safe_mode:
+                console.print("[red]🛡️ Running in ULTRA-SAFE mode - minimal API calls only[/red]")
+                portfolio_service = PortfolioService(provider, use_cached_prices=True, ultra_safe_mode=True)
+            elif read_only_mode:
+                console.print("[yellow]🔒 Running in strict read-only mode to avoid write permission requests[/yellow]")
+                # Force cached prices to avoid any market data subscriptions
+                portfolio_service = PortfolioService(provider, use_cached_prices=True, ultra_safe_mode=False)
+            else:
+                console.print("[cyan]📊 Running with live market data (may require additional permissions)[/cyan]")
+                portfolio_service = PortfolioService(provider, use_cached_prices=False, ultra_safe_mode=False)
 
             with console.status("[bold green]Downloading portfolio positions..."):
                 # Parse account list if provided

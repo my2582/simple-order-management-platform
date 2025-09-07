@@ -117,6 +117,66 @@ python3 -m simple_order_management_platform.cli run-daily-update
 python3 -m simple_order_management_platform.cli update-market-data
 ```
 
+## 🚀 **간소화된 CLI 단축 명령어**
+
+### 🎯 **새로운 실행 방식** 
+이제 긴 `python3 -m simple_order_management_platform.cli` 대신 간단한 실행 스크립트를 사용할 수 있습니다:
+
+```bash
+# 전체 도움말 보기
+./simple-order-help
+
+# 기존 방식 vs 새로운 단축 방식
+# ❌ 기존: python3 -m simple_order_management_platform.cli update-market-data
+# ✅ 새로운: ./update-market-data
+```
+
+### 🔄 **마켓 데이터 작업**
+```bash
+./update-market-data           # 마켓 데이터 캐시 업데이트
+./market-data-status          # 캐시 상태 확인
+```
+
+### 📊 **포트폴리오 작업**
+```bash  
+./download-positions          # 실시간 가격으로 포지션 다운로드
+./download-positions-cached   # 캐시된 가격으로 포지션 다운로드
+./run-daily-update           # 완전한 일일 업데이트 워크플로우
+```
+
+### 📝 **주문 관리**
+```bash
+./generate-orders            # 거래 주문 생성
+./list-portfolios           # 모델 포트폴리오 목록
+```
+
+### 🔧 **시스템 관리**
+```bash
+./test-connection           # IBKR 연결 테스트
+./test-integrations         # 전체 시스템 통합 테스트
+```
+
+### ⏰ **스케줄러 관리**
+```bash
+./start-scheduler           # 자동 스케줄러 데몬 시작
+./scheduler-status          # 스케줄러 상태 확인
+```
+
+### 💡 **사용 예제**
+```bash
+# 강제 마켓 데이터 업데이트
+./update-market-data --force
+
+# 특정 계좌 포지션 다운로드
+./download-positions --accounts DU123456
+
+# 리밸런싱 주문 생성
+./generate-orders DU123456 B301 --type rebalance --amount 100000
+
+# Live 포트 연결 테스트 (4001번 포트)
+./test-connection --ib-port 4001
+```
+
 ### 포트폴리오 관리
 ```bash
 # IBKR 표준 형식 다운로드 (asset class 매핑 포함)

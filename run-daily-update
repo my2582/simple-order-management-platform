@@ -1,0 +1,6 @@
+#!/bin/bash
+# Simple wrapper for running daily update
+# Usage: ./run-daily-update [OPTIONS]
+
+cd "$(dirname "$0")" || exit 1
+exec python3 -m simple_order_management_platform.cli run-daily-update "$@"

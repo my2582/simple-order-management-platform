@@ -1,0 +1,6 @@
+#!/bin/bash
+# Simple wrapper for checking market data status
+# Usage: ./market-data-status [OPTIONS]
+
+cd "$(dirname "$0")" || exit 1
+exec python3 -m simple_order_management_platform.cli market-data-status "$@"

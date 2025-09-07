@@ -1,0 +1,6 @@
+#!/bin/bash
+# Simple wrapper for market data update
+# Usage: ./update-market-data [OPTIONS]
+
+cd "$(dirname "$0")" || exit 1
+exec python3 -m simple_order_management_platform.cli update-market-data "$@"

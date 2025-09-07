@@ -1,0 +1,6 @@
+#!/bin/bash
+# Simple wrapper for testing IBKR connection
+# Usage: ./test-connection [OPTIONS]
+
+cd "$(dirname "$0")" || exit 1
+exec python3 -m simple_order_management_platform.cli test-connection "$@"

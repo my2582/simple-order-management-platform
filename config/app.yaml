@@ -46,10 +46,10 @@ app:
     portfolio_manager:
       description: "Portfolio Manager - Full trading access"
       host: "127.0.0.1"
-      port: 7497  # TWS default port (7497 for TWS, 4002 for IB Gateway)
+      port: 4001  # IB Gateway Live account (primary)
       client_id: 1
       timeout: 30
-      alternative_ports: [4002, 7496, 7497]  # Try these ports if connection fails
+      alternative_ports: [4002, 7497, 7496]  # Try these ports if connection fails (Paper, TWS ports)
       permissions:
         - "portfolio_download"
         - "order_generation"
@@ -58,10 +58,10 @@ app:
     trade_assistant:
       description: "Trade Assistant - Market data access only"
       host: "127.0.0.1"
-      port: 7497  # Same as portfolio manager for now (can be different)
+      port: 4001  # IB Gateway Live account (primary)
       client_id: 2
       timeout: 30
-      alternative_ports: [4002, 7496, 7497]  # Try these ports if connection fails
+      alternative_ports: [4002, 7497, 7496]  # Try these ports if connection fails (Paper, TWS ports)
       permissions:
         - "market_data"
         - "universe_update"
@@ -70,8 +70,8 @@ app:
   # Legacy IB settings (for backward compatibility)
   ib:
     host: "127.0.0.1"
-    port: 7497  # TWS default port (7497 for TWS, 4002 for IB Gateway)
+    port: 4001  # IB Gateway Live account (primary)
     client_id: 1
     timeout: 30
     # Alternative ports to try if connection fails
-    alternative_ports: [4002, 7496, 7497]
+    alternative_ports: [4002, 7497, 7496]  # Paper account, then TWS ports

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Simple wrapper for starting the scheduler
+# Usage: ./start-scheduler [OPTIONS]
+
+cd "$(dirname "$0")" || exit 1
+exec python3 -m simple_order_management_platform.cli start-scheduler "$@"

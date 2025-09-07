@@ -135,35 +135,44 @@ class PortfolioService:
                 f"Failed to get account summary for {account_id}: {e}"
             )
     
-    def _convert_ib_portfolio_to_position(self, ib_position, account_id: str) -> Position:
-        """Convert ib_insync Position object to Position model.
+    def _convert_ib_portfolio_to_position(self, ib_portfolio_item, account_id: str) -> Position:
+        """Convert ib_insync Portfolio item to Position model.
         
         Args:
-            ib_position: ib_insync Position object
+            ib_portfolio_item: ib_insync Portfolio item (NOT Position object)
             account_id: Account ID for this position
             
         Returns:
             Position model object
         """
         try:
-            contract = ib_position.contract
+            contract = ib_portfolio_item.contract
             
-            # Use avgCost as fallback for market price when live data unavailable
+            # Portfolio items have different structure than Position items
+            # Portfolio: contract, position, avgCost, account
+            # Need to calculate market_price and market_value
+            
             market_price = None
             market_value = None
             
-            # Try to get market price, but fallback to avgCost if unavailable
+            # Method 1: Try to get cached market price (fast and efficient)
             try:
-                # For delayed/paper trading, use avgCost as market price approximation
-                if hasattr(ib_position, 'avgCost') and ib_position.avgCost:
-                    market_price = ib_position.avgCost
-                    logger.debug(f"Using avgCost as market price for {contract.symbol}: {market_price}")
-                
+                if self.use_cached_prices:
+                    from ..services.market_data_service import market_data_service
+                    cached_price_data = market_data_service.get_cached_price(contract.symbol)
+                    if cached_price_data:
+                        market_price = cached_price_data['close_price']
+                        logger.debug(f"Using cached price for {contract.symbol}: {market_price}")
             except Exception as e:
-                logger.warning(f"Could not determine market price for {contract.symbol}: {e}")
+                logger.debug(f"Could not get cached price for {contract.symbol}: {e}")
+            
+            # Method 2: Fallback to avgCost if no cached price available
+            if not market_price and hasattr(ib_portfolio_item, 'avgCost') and ib_portfolio_item.avgCost:
+                market_price = ib_portfolio_item.avgCost
+                logger.debug(f"Using avgCost as market price for {contract.symbol}: {market_price}")
                 
             # Calculate market value
-            if market_price and ib_position.position:
+            if market_price and ib_portfolio_item.position:
                 multiplier = getattr(contract, 'multiplier', 1)
                 if multiplier and multiplier != '':
                     try:
@@ -173,7 +182,7 @@ class PortfolioService:
                 else:
                     multiplier = 1
                     
-                market_value = Decimal(str(market_price)) * Decimal(str(ib_position.position)) * Decimal(str(multiplier))
+                market_value = Decimal(str(market_price)) * Decimal(str(ib_portfolio_item.position)) * Decimal(str(multiplier))
             
             # Safely handle None and NaN values
             def safe_decimal(value):
@@ -192,11 +201,11 @@ class PortfolioService:
                 exchange=contract.exchange or '',
                 currency=contract.currency or 'USD',
                 sec_type=contract.secType or 'STK',
-                position=Decimal(str(ib_position.position)),
+                position=Decimal(str(ib_portfolio_item.position)),
                 market_price=safe_decimal(market_price),
                 market_value=safe_decimal(market_value),
-                avg_cost=safe_decimal(ib_position.avgCost),
-                unrealized_pnl=None,  # Position object doesn't have PnL info
+                avg_cost=safe_decimal(ib_portfolio_item.avgCost),
+                unrealized_pnl=None,  # Portfolio items don't have PnL info
                 realized_pnl=None,
                 local_symbol=getattr(contract, 'localSymbol', None),
                 multiplier=int(getattr(contract, 'multiplier', 1)) if getattr(contract, 'multiplier', '') != '' else None,
@@ -206,9 +215,9 @@ class PortfolioService:
             return position
             
         except Exception as e:
-            logger.error(f"Error converting IB position to Position model: {e}")
-            logger.error(f"IB Position data: {ib_position}")
-            raise SimpleOrderManagementPlatformError(f"Failed to convert position data: {e}")
+            logger.error(f"Error converting IB portfolio item to Position model: {e}")
+            logger.error(f"IB Portfolio item data: {ib_portfolio_item}")
+            raise SimpleOrderManagementPlatformError(f"Failed to convert portfolio data: {e}")
     
     def _convert_account_summary_dict_to_model(self, summary_dict: Dict[str, Any], account_id: str) -> AccountSummary:
         """Convert account summary dictionary to AccountSummary model.
@@ -267,23 +276,9 @@ class PortfolioService:
                 try:
                     position = self._convert_ib_portfolio_to_position(ib_position, account_id)
                     
-                    # Apply cached prices if configured
-                    if self.use_cached_prices and position.symbol:
-                        from ..services.market_data_service import market_data_service
-                        cached_price_data = market_data_service.get_cached_price(position.symbol)
-                        if cached_price_data:
-                            # Update market price with cached price
-                            old_price = position.market_price
-                            position.market_price = Decimal(str(cached_price_data['close_price']))
-                            
-                            # Update market value
-                            if position.position and position.market_price:
-                                position.market_value = position.position * position.market_price
-                            
-                            cached_price_count += 1
-                            logger.debug(f"Updated {position.symbol}: {old_price} -> {position.market_price} (cached)")
-                        else:
-                            logger.warning(f"No cached price found for {position.symbol}, using live data")
+                    # Cached prices are already applied in _convert_ib_portfolio_to_position
+                    if self.use_cached_prices and position.market_price:
+                        cached_price_count += 1
                     
                     positions.append(position)
                 except Exception as e:

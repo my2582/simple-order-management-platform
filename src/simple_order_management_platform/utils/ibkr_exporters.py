@@ -299,6 +299,9 @@ class IBKRStandardExporter:
                 asset_class = symbol_metadata[symbol]['asset_class'].lower()
                 weight_pct = pos_data['weight']
                 
+                # Debug logging to understand weight calculation issues
+                logger.debug(f"Account {account_id}, Symbol {symbol}: weight_pct={weight_pct}, asset_class={asset_class}")
+                
                 if 'equity' in asset_class or 'etf' in asset_class:
                     equity_weight += weight_pct
                 elif 'bond' in asset_class or 'fixed' in asset_class:

@@ -20,18 +20,16 @@ logger = logging.getLogger(__name__)
 class PortfolioService:
     """Service for downloading and managing portfolio positions from IBKR."""
     
-    def __init__(self, ib_provider: IBProvider, use_cached_prices: bool = False, ultra_safe_mode: bool = False):
+    def __init__(self, ib_provider: IBProvider, use_cached_prices: bool = False):
         """Initialize portfolio service.
         
         Args:
             ib_provider: Interactive Brokers provider instance
             use_cached_prices: Whether to use cached prices for position valuation
-            ultra_safe_mode: If True, avoid any API calls that might trigger subscriptions
         """
         self.ib_provider = ib_provider
         self.ib: IB = ib_provider.connector.ib
         self.use_cached_prices = use_cached_prices
-        self._force_account_values_only = ultra_safe_mode
     
     def get_all_accounts(self) -> List[str]:
         """Get all managed account IDs.
@@ -69,28 +67,16 @@ class PortfolioService:
         try:
             logger.info(f"Requesting portfolio for account: {account_id}")
             
-            # ULTRA-SAFE: Avoid ib.portfolio() completely if it triggers subscriptions
-            # Check if we need to use truly read-only approach
-            if hasattr(self, '_force_account_values_only') and self._force_account_values_only:
-                logger.warning(f"ULTRA-SAFE MODE: Using account values only for {account_id} - no position details available")
-                logger.warning(f"This mode avoids ALL subscription-based API calls to prevent write permission requests")
-                # Return empty list - we'll only show account summary data
-                return []
+            # REVERT TO ORIGINAL WORKING METHOD: Use positions() as it actually works
+            # IB Gateway Read-Only setting provides the safety we need
+            logger.debug(f"Using positions() method (original working approach)")
             
-            # Standard approach: Use ib.portfolio() but with precautions
-            logger.debug(f"Using portfolio() calls for account {account_id}")
+            # Get all positions and filter by account (ORIGINAL METHOD THAT WORKED)
+            all_positions = self.ib.positions()
+            account_positions = [pos for pos in all_positions if pos.account == account_id]
             
-            # Get portfolio with minimal subscription risk
-            portfolio = self.ib.portfolio(account_id)
-            
-            # Minimal wait to reduce subscription overhead
-            self.ib.sleep(0.5)  # Reduced from 1 second
-            
-            # Convert Portfolio items to Position-like objects
-            account_positions = []
-            for item in portfolio:
-                # Portfolio items have contract, position, avgCost, etc.
-                account_positions.append(item)
+            # Wait for data to be received
+            self.ib.sleep(1)
             
             logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
             return account_positions
@@ -116,24 +102,28 @@ class PortfolioService:
         try:
             logger.info(f"Requesting account summary for: {account_id}")
             
-            # Use Read-only approach: Get account values directly
-            # This method doesn't require subscriptions and is read-only
-            logger.debug(f"Using accountValues() for read-only access to account {account_id}")
+            # REVERT TO ORIGINAL: Use accountSummary() as it provides structured data
+            # IB Gateway Read-Only setting will protect us from write operations
+            logger.debug(f"Using accountSummary() method (original working approach)")
             
-            # Get account values (read-only, no subscription needed)
-            account_values = self.ib.accountValues(account_id)
+            # Define the tags we want to retrieve  
+            tags = [
+                'NetLiquidation', 'TotalCashValue', 'SettledCash', 'AccruedCash',
+                'BuyingPower', 'EquityWithLoanValue', 'GrossPositionValue',
+                'UnrealizedPnL', 'RealizedPnL', 'AccountType'
+            ]
+            
+            # Request account summary (ORIGINAL METHOD THAT WORKED)
+            summary_items = self.ib.accountSummary(account_id)
             
             # Wait for data
             self.ib.sleep(1)
             
             # Convert to dictionary
             summary_dict = {}
-            for item in account_values:
+            for item in summary_items:
                 if item.account == account_id:
-                    # Map the tag names to our expected format
-                    tag = item.tag
-                    value = item.value
-                    summary_dict[tag] = value
+                    summary_dict[item.tag] = item.value
                     
             logger.info(f"Retrieved account summary for {account_id}: {len(summary_dict)} items")
             return summary_dict
@@ -144,44 +134,53 @@ class PortfolioService:
                 f"Failed to get account summary for {account_id}: {e}"
             )
     
-    def _convert_ib_portfolio_to_position(self, ib_portfolio_item, account_id: str) -> Position:
-        """Convert ib_insync Portfolio item to Position model.
+    def _convert_ib_position_to_position(self, ib_position, account_id: str) -> Position:
+        """Convert ib_insync Position object to Position model.
         
         Args:
-            ib_portfolio_item: ib_insync Portfolio item (NOT Position object)
+            ib_position: ib_insync Position object  
             account_id: Account ID for this position
             
         Returns:
             Position model object
         """
         try:
-            contract = ib_portfolio_item.contract
+            contract = ib_position.contract
             
-            # Portfolio items have different structure than Position items
-            # Portfolio: contract, position, avgCost, account
-            # Need to calculate market_price and market_value
+            # Position objects have marketPrice and marketValue (unlike Portfolio objects)
+            # This is why the original method worked better!
             
             market_price = None
             market_value = None
             
-            # Method 1: Try to get cached market price (fast and efficient)
-            try:
-                if self.use_cached_prices:
+            # Method 1: Use Position object's built-in marketPrice if available
+            if hasattr(ib_position, 'marketPrice') and ib_position.marketPrice:
+                market_price = ib_position.marketPrice
+                logger.debug(f"Using Position marketPrice for {contract.symbol}: {market_price}")
+            
+            # Method 2: Use Position object's built-in marketValue if available  
+            if hasattr(ib_position, 'marketValue') and ib_position.marketValue:
+                market_value = ib_position.marketValue
+                logger.debug(f"Using Position marketValue for {contract.symbol}: {market_value}")
+            
+            # Method 3: Try cached prices if configured
+            if not market_price and self.use_cached_prices:
+                try:
                     from ..services.market_data_service import market_data_service
                     cached_price_data = market_data_service.get_cached_price(contract.symbol)
                     if cached_price_data:
                         market_price = cached_price_data['close_price']
                         logger.debug(f"Using cached price for {contract.symbol}: {market_price}")
-            except Exception as e:
-                logger.debug(f"Could not get cached price for {contract.symbol}: {e}")
+                except Exception as e:
+                    logger.debug(f"Could not get cached price for {contract.symbol}: {e}")
             
-            # Method 2: Fallback to avgCost if no cached price available
-            if not market_price and hasattr(ib_portfolio_item, 'avgCost') and ib_portfolio_item.avgCost:
-                market_price = ib_portfolio_item.avgCost
+            # Method 4: Fallback to avgCost if no other price available
+            if not market_price and hasattr(ib_position, 'avgCost') and ib_position.avgCost:
+                market_price = ib_position.avgCost
                 logger.debug(f"Using avgCost as market price for {contract.symbol}: {market_price}")
                 
-            # Calculate market value
-            if market_price and ib_portfolio_item.position:
+            # Calculate market value if not already available
+            if not market_value and market_price and ib_position.position:
                 multiplier = getattr(contract, 'multiplier', 1)
                 if multiplier and multiplier != '':
                     try:
@@ -191,7 +190,7 @@ class PortfolioService:
                 else:
                     multiplier = 1
                     
-                market_value = Decimal(str(market_price)) * Decimal(str(ib_portfolio_item.position)) * Decimal(str(multiplier))
+                market_value = Decimal(str(market_price)) * Decimal(str(ib_position.position)) * Decimal(str(multiplier))
             
             # Safely handle None and NaN values
             def safe_decimal(value):
@@ -210,12 +209,12 @@ class PortfolioService:
                 exchange=contract.exchange or '',
                 currency=contract.currency or 'USD',
                 sec_type=contract.secType or 'STK',
-                position=Decimal(str(ib_portfolio_item.position)),
+                position=Decimal(str(ib_position.position)),
                 market_price=safe_decimal(market_price),
                 market_value=safe_decimal(market_value),
-                avg_cost=safe_decimal(ib_portfolio_item.avgCost),
-                unrealized_pnl=None,  # Portfolio items don't have PnL info
-                realized_pnl=None,
+                avg_cost=safe_decimal(ib_position.avgCost),
+                unrealized_pnl=safe_decimal(getattr(ib_position, 'unrealizedPNL', None)),  # Position objects have PnL
+                realized_pnl=safe_decimal(getattr(ib_position, 'realizedPNL', None)),
                 local_symbol=getattr(contract, 'localSymbol', None),
                 multiplier=int(getattr(contract, 'multiplier', 1)) if getattr(contract, 'multiplier', '') != '' else None,
                 last_trade_date=getattr(contract, 'lastTradeDateOrContractMonth', None),
@@ -224,9 +223,9 @@ class PortfolioService:
             return position
             
         except Exception as e:
-            logger.error(f"Error converting IB portfolio item to Position model: {e}")
-            logger.error(f"IB Portfolio item data: {ib_portfolio_item}")
-            raise SimpleOrderManagementPlatformError(f"Failed to convert portfolio data: {e}")
+            logger.error(f"Error converting IB position to Position model: {e}")
+            logger.error(f"IB Position data: {ib_position}")
+            raise SimpleOrderManagementPlatformError(f"Failed to convert position data: {e}")
     
     def _convert_account_summary_dict_to_model(self, summary_dict: Dict[str, Any], account_id: str) -> AccountSummary:
         """Convert account summary dictionary to AccountSummary model.
@@ -283,7 +282,7 @@ class PortfolioService:
             cached_price_count = 0
             for ib_position in ib_portfolio:
                 try:
-                    position = self._convert_ib_portfolio_to_position(ib_position, account_id)
+                    position = self._convert_ib_position_to_position(ib_position, account_id)
                     
                     # Cached prices are already applied in _convert_ib_portfolio_to_position
                     if self.use_cached_prices and position.market_price:

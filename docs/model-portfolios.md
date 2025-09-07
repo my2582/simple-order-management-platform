@@ -197,7 +197,7 @@ B801,High Dividend,,VIG,10.00,06/09/25
 
 ```bash
 # 일일 포지션 체크 및 리밸런싱 필요성 판단
-simple-order download-positions -o daily_check.xlsx
+simple-order positions -o daily_check.xlsx
 # Excel에서 수동 확인 또는 자동화 스크립트 작성
 ```
 
@@ -208,7 +208,7 @@ simple-order download-positions -o daily_check.xlsx
 #### 1. 정기 포지션 스냅샷
 ```bash
 # 매일 포지션 기록
-simple-order download-positions -o "positions_$(date +%Y%m%d).xlsx"
+simple-order positions -o "positions_$(date +%Y%m%d).xlsx"
 
 # 월별 성과 요약
 mkdir -p data/performance/$(date +%Y%m)

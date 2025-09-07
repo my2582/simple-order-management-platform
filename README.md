@@ -152,8 +152,8 @@ python3 -m simple_order_management_platform.cli update-market-data
 
 ### 📊 **포트폴리오 작업**
 ```bash  
-./download-positions          # 실시간 가격으로 포지션 다운로드
-./download-positions-cached   # 캐시된 가격으로 포지션 다운로드
+./positions          # 실시간 가격으로 포지션 다운로드
+./positions-cached   # 캐시된 가격으로 포지션 다운로드
 ./run-daily-update           # 완전한 일일 업데이트 워크플로우
 ```
 
@@ -181,7 +181,7 @@ python3 -m simple_order_management_platform.cli update-market-data
 ./update-market-data --force
 
 # 특정 계좌 포지션 다운로드
-./download-positions --accounts DU123456
+./positions --accounts DU123456
 
 # 리밸런싱 주문 생성
 ./generate-orders DU123456 B301 --type rebalance --amount 100000
@@ -246,13 +246,13 @@ python3 -m simple_order_management_platform.cli list-portfolios
 
 ```bash
 # 🚀 간단한 방법 (추천)
-./download-positions
+./positions
 
 # 📈 특정 고객 계좌만 확인
-./download-positions --accounts DU123456
+./positions --accounts DU123456
 
 # ⚡ 빠른 확인 (캐시된 가격 사용)
-./download-positions-cached --accounts DU123456,DU789012
+./positions-cached --accounts DU123456,DU789012
 ```
 
 **결과물**: 
@@ -325,7 +325,7 @@ python3 -m simple_order_management_platform.cli list-portfolios
 ./update-market-data
 
 # 3. 전체 포지션 다운로드  
-./download-positions
+./positions
 
 # ✅ 결과: 최신 데이터로 업데이트된 포트폴리오 보고서 완성
 ```
@@ -333,7 +333,7 @@ python3 -m simple_order_management_platform.cli list-portfolios
 #### 📞 **고객 문의 응대 시**
 ```bash
 # 빠른 포지션 확인 (캐시 사용)
-./download-positions-cached --accounts DU123456
+./positions-cached --accounts DU123456
 
 # 특정 고객 계좌만 즉시 확인 가능
 # 처리시간: ~30초 (vs 실시간 다운로드 3-5분)
@@ -345,7 +345,7 @@ python3 -m simple_order_management_platform.cli list-portfolios
 ./update-market-data --force
 
 # 2. 전체 고객 포지션 다운로드
-./download-positions  
+./positions  
 
 # 3. 결과 파일을 회계팀에 공유
 # 파일 위치: ./data/output/portfolio_positions_YYYYMMDD_HHMMSS.xlsx
@@ -363,7 +363,7 @@ python3 -m simple_order_management_platform.cli list-portfolios
 ./scheduler-status
 
 # 4. 수동으로 특정 계좌만 테스트
-./download-positions --accounts DU123456 --ib-port 4001
+./positions --accounts DU123456 --ib-port 4001
 ```
 
 ### ⚠️ **중요 주의사항**
@@ -375,8 +375,8 @@ python3 -m simple_order_management_platform.cli list-portfolios
 
 #### ⏱️ **실행 시간 가이드**
 - `./update-market-data`: 2-5분 (종목 수에 따라)
-- `./download-positions`: 3-8분 (계좌 수에 따라)
-- `./download-positions-cached`: 30초-1분 (캐시 사용)
+- `./positions`: 3-8분 (계좌 수에 따라)
+- `./positions-cached`: 30초-1분 (캐시 사용)
 - `./run-daily-update`: 10-15분 (전체 프로세스)
 
 #### 📁 **파일 저장 위치**
@@ -392,7 +392,7 @@ python3 -m simple_order_management_platform.cli list-portfolios
 ./simple-order-help
 
 # 📖 특정 명령어 도움말
-./download-positions --help
+./positions --help
 ./generate-orders --help
 ./update-market-data --help
 ```

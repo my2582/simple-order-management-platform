@@ -20,10 +20,10 @@ simple-order test-connection
 #### 2. 일일 포지션 다운로드
 ```bash
 # 모든 계좌의 포지션을 통합 매트릭스로 다운로드
-simple-order download-positions --output "daily_positions_$(date +%Y%m%d).xlsx"
+simple-order positions --output "daily_positions_$(date +%Y%m%d).xlsx"
 
 # 특정 계좌만 확인이 필요한 경우
-simple-order download-positions --accounts "DU123456,DU789012" --output "priority_accounts_$(date +%Y%m%d).xlsx"
+simple-order positions --accounts "DU123456,DU789012" --output "priority_accounts_$(date +%Y%m%d).xlsx"
 ```
 
 #### 3. 포지션 분석
@@ -101,7 +101,7 @@ awk -F',' 'NR>1 {sum+=$5} END {print "Total Order Amount: $" sum}' data/output/o
 ##### 실행된 주문 추적
 ```bash
 # 주문 실행 후 포지션 재확인
-simple-order download-positions --accounts DU123456 --output "post_order_check_$(date +%H%M).xlsx"
+simple-order positions --accounts DU123456 --output "post_order_check_$(date +%H%M).xlsx"
 ```
 
 ##### 예외 상황 대응
@@ -116,7 +116,7 @@ simple-order download-positions --accounts DU123456 --output "post_order_check_$
 ##### 최종 포지션 확인
 ```bash
 # 마감 후 최종 포지션 스냅샷
-simple-order download-positions --output "eod_positions_$(date +%Y%m%d).xlsx"
+simple-order positions --output "eod_positions_$(date +%Y%m%d).xlsx"
 ```
 
 ##### 일일 성과 요약
@@ -168,7 +168,7 @@ ls data/daily_reports/$WEEK_END/
 simple-order list-portfolios
 
 # 편차가 큰 계좌들 식별 (수동 분석)
-simple-order download-positions --output "weekly_rebalance_check_$(date +%Y%m%d).xlsx"
+simple-order positions --output "weekly_rebalance_check_$(date +%Y%m%d).xlsx"
 ```
 
 #### 3. 리스크 관리 점검
@@ -199,7 +199,7 @@ mkdir -p "data/monthly_reports/$MONTH"
 cp data/daily_reports/${MONTH}*/daily_positions_*.xlsx "data/monthly_reports/$MONTH/"
 
 # 월말 최종 포지션
-simple-order download-positions --output "data/monthly_reports/$MONTH/month_end_positions_$MONTH.xlsx"
+simple-order positions --output "data/monthly_reports/$MONTH/month_end_positions_$MONTH.xlsx"
 ```
 
 #### 3. 모델 포트폴리오 검토
@@ -214,7 +214,7 @@ simple-order download-positions --output "data/monthly_reports/$MONTH/month_end_
 #### 즉시 대응 (15분 내)
 ```bash
 # 1. 모든 계좌 현황 파악
-simple-order download-positions --output "crisis_positions_$(date +%Y%m%d_%H%M).xlsx"
+simple-order positions --output "crisis_positions_$(date +%Y%m%d_%H%M).xlsx"
 
 # 2. 현금 포지션 확인
 echo "Emergency cash check completed at $(date)"
@@ -273,10 +273,10 @@ awk -F',' '$5 > 50 {print "WARNING: " $4 " exceeds 50% limit: " $5 "%"}' data/mo
 # crontab -e 에 추가
 
 # 매일 오전 8시 30분: 일일 포지션 체크
-30 8 * * 1-5 /usr/local/bin/simple-order download-positions --output "/home/user/daily_auto_$(date +\%Y\%m\%d).xlsx"
+30 8 * * 1-5 /usr/local/bin/simple-order positions --output "/home/user/daily_auto_$(date +\%Y\%m\%d).xlsx"
 
 # 매일 오후 4시 30분: 마감 후 포지션 체크  
-30 16 * * 1-5 /usr/local/bin/simple-order download-positions --output "/home/user/eod_auto_$(date +\%Y\%m\%d).xlsx"
+30 16 * * 1-5 /usr/local/bin/simple-order positions --output "/home/user/eod_auto_$(date +\%Y\%m\%d).xlsx"
 
 # 매주 금요일 오후 5시: 주간 리포트
 0 17 * * 5 /home/user/scripts/weekly_report.sh
@@ -304,7 +304,7 @@ if ! simple-order test-connection >> $LOG_FILE 2>&1; then
 fi
 
 # 2. 포지션 다운로드
-simple-order download-positions --output "daily_positions_$DATE.xlsx" >> $LOG_FILE 2>&1
+simple-order positions --output "daily_positions_$DATE.xlsx" >> $LOG_FILE 2>&1
 
 # 3. 성과 기록
 echo "$DATE,$(get_total_portfolio_value)" >> data/performance/daily_nav.csv

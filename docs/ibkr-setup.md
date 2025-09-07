@@ -166,7 +166,7 @@ simple-order test-connection --ib-host 192.168.1.100 --ib-port 4002 --ib-client-
 
 ```bash
 # 계정 포지션 다운로드 테스트
-simple-order download-positions --accounts DU123456 --output test.xlsx
+simple-order positions --accounts DU123456 --output test.xlsx
 ```
 
 ## 🔧 계정별 상세 설정
@@ -209,10 +209,10 @@ ibkr:
 #### 3. 권한 확인
 ```bash
 # 모든 관리 계좌 확인
-simple-order download-positions
+simple-order positions
 
 # 특정 계좌만 확인  
-simple-order download-positions --accounts "DU123456,DU789012"
+simple-order positions --accounts "DU123456,DU789012"
 ```
 
 ## 🌐 원격 서버 설정

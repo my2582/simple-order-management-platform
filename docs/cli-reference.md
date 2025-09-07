@@ -15,11 +15,11 @@ simple-order [OPTIONS] COMMAND [ARGS]...
 
 ## 📊 포트폴리오 관리 명령어
 
-### `download-positions`
+### `positions`
 모든 또는 특정 계좌의 포지션을 Excel 파일로 다운로드합니다.
 
 ```bash
-simple-order download-positions [OPTIONS]
+simple-order positions [OPTIONS]
 ```
 
 #### 옵션
@@ -32,16 +32,16 @@ simple-order download-positions [OPTIONS]
 #### 사용 예시
 ```bash
 # 모든 계좌 다운로드
-simple-order download-positions
+simple-order positions
 
 # 특정 계좌들만 다운로드
-simple-order download-positions -a "DU123456,DU789012"
+simple-order positions -a "DU123456,DU789012"
 
 # 파일명 지정
-simple-order download-positions -o "daily_positions_20250906.xlsx"
+simple-order positions -o "daily_positions_20250906.xlsx"
 
 # IB 연결 설정 변경
-simple-order download-positions --ib-host 192.168.1.100 --ib-port 4003
+simple-order positions --ib-host 192.168.1.100 --ib-port 4003
 ```
 
 #### 출력 파일 구조
@@ -198,13 +198,13 @@ simple-order list-master
 
 ```bash
 # Paper Trading 계정 (포트 4002)
-simple-order download-positions --ib-port 4002
+simple-order positions --ib-port 4002
 
 # Live Trading 계정 (포트 7497)
-simple-order download-positions --ib-port 7497
+simple-order positions --ib-port 7497
 
 # 다른 서버의 IB Gateway
-simple-order download-positions --ib-host 192.168.1.100 --ib-port 4002 --ib-client-id 2
+simple-order positions --ib-host 192.168.1.100 --ib-port 4002 --ib-client-id 2
 ```
 
 ### 배치 처리 예시
@@ -218,11 +218,11 @@ DATE=$(date +%Y%m%d)
 ACCOUNTS=("DU123456" "DU789012" "DU345678")
 
 # 모든 계좌 포지션 다운로드
-simple-order download-positions -o "all_positions_${DATE}.xlsx"
+simple-order positions -o "all_positions_${DATE}.xlsx"
 
 # 각 계좌별 개별 다운로드
 for account in "${ACCOUNTS[@]}"; do
-    simple-order download-positions -a "$account" -o "positions_${account}_${DATE}.xlsx"
+    simple-order positions -a "$account" -o "positions_${account}_${DATE}.xlsx"
 done
 
 echo "Daily portfolio check completed for $DATE"
@@ -287,7 +287,7 @@ Error: No positions found for account
 simple-order test-connection
 
 # 2. 포지션 확인
-simple-order download-positions -o "morning_check_$(date +%Y%m%d).xlsx"
+simple-order positions -o "morning_check_$(date +%Y%m%d).xlsx"
 
 # 3. 필요한 주문지 생성
 simple-order generate-orders ACCOUNT PORTFOLIO --type TYPE --amount AMOUNT

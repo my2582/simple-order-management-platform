@@ -17,6 +17,7 @@ class UniverseInstrument:
     region: str
     instrument_name: str
     ib_symbol: str
+    ib_security_type: str
     exchange: str
     currency: str
     instrument_type: str
@@ -36,6 +37,7 @@ class UniverseInstrument:
             region=str(data.get('Region', '')),
             instrument_name=str(data.get('Instrument name', '')),
             ib_symbol=str(data.get('IBSymbol', '')),
+            ib_security_type=str(data.get('IBSecurityType', '')),
             exchange=str(data.get('Exchange', '')),
             currency=str(data.get('Currency', '')),
             instrument_type=str(data.get('Type', '')),

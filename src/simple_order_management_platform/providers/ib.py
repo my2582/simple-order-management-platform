@@ -166,9 +166,15 @@ class IBProvider(BaseProvider):
             Dictionary mapping symbol -> price data
         """
         prices_dict = {}
+        active_tickers = []
         
         # Import universe manager
         from ..models.universe import universe_manager
+        
+        logger.info(f"Starting price download for {len(symbols)} symbols")
+        
+        # First, create all contracts and request market data
+        symbol_to_ticker = {}
         
         for symbol in symbols:
             try:
@@ -184,69 +190,190 @@ class IBProvider(BaseProvider):
                     logger.warning(f"Could not create contract for {symbol}, skipping")
                     continue
                 
-                # Get market data
-                ticker = self.ib.reqMktData(contract, '', False, False)
-                
-                # Wait for data (shorter wait time for efficiency)
-                self.ib.sleep(1)
-                
-                # Get the price
-                close_price = ticker.marketPrice()
-                if close_price and close_price > 0:
-                    prices_dict[symbol] = {
-                        'close_price': float(close_price),
-                        'currency': instrument.currency,
-                        'data_date': datetime.now().date().isoformat()
-                    }
-                    logger.debug(f"Got price for {symbol}: {close_price} {instrument.currency}")
-                else:
-                    # Try last price or close price
-                    last_price = ticker.last
-                    if last_price and last_price > 0:
-                        prices_dict[symbol] = {
-                            'close_price': float(last_price),
-                            'currency': instrument.currency,
-                            'data_date': datetime.now().date().isoformat()
-                        }
-                        logger.debug(f"Got last price for {symbol}: {last_price} {instrument.currency}")
+                # Validate contract first
+                try:
+                    contract_details = self.ib.reqContractDetails(contract)
+                    if not contract_details:
+                        logger.warning(f"Contract validation failed for {symbol}, trying qualified contract")
+                        # Try to qualify the contract
+                        qualified_contracts = self.ib.qualifyContracts(contract)
+                        if not qualified_contracts:
+                            logger.warning(f"Could not qualify contract for {symbol}, skipping")
+                            continue
+                        contract = qualified_contracts[0]
+                        logger.info(f"Using qualified contract for {symbol}: {contract}")
                     else:
-                        logger.warning(f"No valid price data for {symbol}")
+                        logger.debug(f"Contract validated for {symbol}")
+                except Exception as e:
+                    logger.warning(f"Contract validation error for {symbol}: {e}, skipping")
+                    continue
                 
-                # Cancel market data
-                self.ib.cancelMktData(contract)
+                # Request market data with generic tick types
+                ticker = self.ib.reqMktData(contract, '100,101,104,106,165,221,225', False, False)
+                if ticker:
+                    symbol_to_ticker[symbol] = (ticker, instrument)
+                    active_tickers.append(ticker)
+                    logger.debug(f"Requested market data for {symbol}")
+                else:
+                    logger.warning(f"Failed to request market data for {symbol}")
+                
+            except Exception as e:
+                logger.warning(f"Failed to setup market data for {symbol}: {e}")
+                continue
+        
+        if not active_tickers:
+            logger.error("No valid contracts created for any symbols")
+            return prices_dict
+        
+        # Wait for market data to populate
+        logger.info(f"Waiting for market data for {len(active_tickers)} contracts...")
+        self.ib.sleep(3)  # Give more time for data to arrive
+        
+        # Collect prices
+        for symbol, (ticker, instrument) in symbol_to_ticker.items():
+            try:
+                # Try multiple price sources in order of preference
+                price = None
+                price_source = None
+                
+                # 1. Try market price (mid price)
+                if hasattr(ticker, 'marketPrice') and ticker.marketPrice():
+                    price = ticker.marketPrice()
+                    price_source = 'market'
+                
+                # 2. Try last traded price
+                elif hasattr(ticker, 'last') and ticker.last and ticker.last > 0:
+                    price = ticker.last
+                    price_source = 'last'
+                
+                # 3. Try close price
+                elif hasattr(ticker, 'close') and ticker.close and ticker.close > 0:
+                    price = ticker.close
+                    price_source = 'close'
+                
+                # 4. Try bid/ask midpoint
+                elif (hasattr(ticker, 'bid') and hasattr(ticker, 'ask') and 
+                      ticker.bid and ticker.ask and ticker.bid > 0 and ticker.ask > 0):
+                    price = (ticker.bid + ticker.ask) / 2
+                    price_source = 'bid_ask_mid'
+                
+                if price and price > 0:
+                    prices_dict[symbol] = {
+                        'close_price': float(price),
+                        'currency': instrument.currency,
+                        'data_date': datetime.now().date().isoformat(),
+                        'price_source': price_source
+                    }
+                    logger.info(f"✓ {symbol}: {price:.4f} {instrument.currency} ({price_source})")
+                else:
+                    logger.warning(f"✗ {symbol}: No valid price data available (bid={getattr(ticker, 'bid', 'N/A')}, ask={getattr(ticker, 'ask', 'N/A')}, last={getattr(ticker, 'last', 'N/A')})")
                 
             except Exception as e:
                 logger.warning(f"Failed to get price for {symbol}: {e}")
                 continue
+        
+        # Cancel all market data subscriptions
+        for ticker, _ in symbol_to_ticker.values():
+            try:
+                self.ib.cancelMktData(ticker.contract)
+            except Exception as e:
+                logger.debug(f"Error canceling market data: {e}")
+        
+        success_rate = len(prices_dict) / len(symbols) * 100 if symbols else 0
+        logger.info(f"Price download completed: {len(prices_dict)}/{len(symbols)} symbols ({success_rate:.1f}% success rate)")
         
         return prices_dict
     
     def _create_contract_from_universe(self, instrument) -> Optional[Any]:
         """Create appropriate IB contract from universe instrument data."""
         try:
-            from ib_insync import Stock, Future, Option, Index
+            from ib_insync import Stock, Future, Option, Index, Contract
             
             symbol = instrument.ib_symbol
-            exchange = instrument.exchange
+            exchange = self._normalize_exchange_name(instrument.exchange)
             currency = instrument.currency
             asset_class = instrument.asset_class.lower()
+            security_type = instrument.ib_security_type
             
-            if asset_class in ['equity', 'etf']:
-                return Stock(symbol, exchange, currency)
-            elif asset_class in ['commodity', 'futures']:
-                # For futures, we may need additional parsing
-                return Future(symbol, exchange, currency)
-            elif asset_class == 'bonds':
-                # Bonds might be handled differently
-                return Stock(symbol, exchange, currency)  # Fallback to stock for now
-            elif asset_class == 'option':
-                # Options need special parsing - for now skip complex options
-                logger.debug(f"Skipping option symbol {symbol} - complex parsing required")
+            logger.debug(f"Creating contract for {symbol}: class={asset_class}, type={security_type}, exchange={exchange}")
+            
+            # Handle different asset classes based on security type FIRST (more specific)
+            if security_type == 'FUT':
+                # Futures - use the symbol as localSymbol for continuous contracts
+                contract = Future(localSymbol=symbol, exchange=exchange, currency=currency)
+                logger.debug(f"Created Future contract with localSymbol: {contract}")
+                return contract
+                
+            elif security_type == 'STK' or asset_class in ['equity', 'etf']:
+                # Stocks and ETFs
+                contract = Stock(symbol, exchange, currency)
+                logger.debug(f"Created Stock contract: {contract}")
+                return contract
+                
+            elif security_type == 'IND' or asset_class == 'index':
+                # Index
+                contract = Index(symbol, exchange, currency)
+                logger.debug(f"Created Index contract: {contract}")
+                return contract
+                
+            elif security_type == 'OPT' or asset_class == 'option':
+                # Options - skip for now as they need strike, expiry, etc.
+                logger.debug(f"Skipping option symbol {symbol} - requires strike/expiry data")
                 return None
+                
+            elif security_type == 'BOND' or asset_class == 'bonds':
+                # Bonds - try as generic contract first
+                contract = Contract()
+                contract.symbol = symbol
+                contract.secType = 'BOND'
+                contract.exchange = exchange
+                contract.currency = currency
+                logger.debug(f"Created Bond contract: {contract}")
+                return contract
+                
+            elif security_type == 'CASH' or asset_class == 'forex':
+                # Forex
+                contract = Contract()
+                contract.symbol = symbol
+                contract.secType = 'CASH'
+                contract.exchange = 'IDEALPRO'  # Standard forex exchange
+                contract.currency = currency
+                logger.debug(f"Created Forex contract: {contract}")
+                return contract
+                
             else:
-                # Default to stock
-                return Stock(symbol, exchange, currency)
+                # Try to guess from symbol patterns or default to stock
+                logger.warning(f"Unknown security type '{security_type}' for {symbol}, defaulting to Stock")
+                contract = Stock(symbol, exchange, currency)
+                return contract
                 
         except Exception as e:
             logger.warning(f"Error creating contract for {instrument.ib_symbol}: {e}")
             return None
+    
+    def _normalize_exchange_name(self, exchange: str) -> str:
+        """Normalize exchange names to IBKR expected values."""
+        exchange_mapping = {
+            'NASDAQ': 'NASDAQ',
+            'NYSE': 'NYSE', 
+            'ARCA': 'ARCA',
+            'CME': 'CME',
+            'CBOT': 'CBOT',
+            'NYMEX': 'NYMEX',
+            'COMEX': 'COMEX',
+            'ICE': 'ICE',
+            'EUREX': 'EUREX',
+            'SGX': 'SGX',
+            'OSE': 'OSE',
+            'OSE.JPN': 'OSE.JPN',  # Japanese futures exchange
+            'TSE': 'TSE',
+            'LSE': 'LSE',
+            'SMART': 'SMART'  # IB's smart routing
+        }
+        
+        # First try exact match
+        if exchange in exchange_mapping:
+            return exchange_mapping[exchange]
+        
+        # Then try uppercase match
+        return exchange_mapping.get(exchange.upper(), exchange)

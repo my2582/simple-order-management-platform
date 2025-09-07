@@ -69,9 +69,13 @@ class IBKRStandardExporter:
             summary_df = self._create_summary_sheet(multi_portfolio)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
-            # Create Matrix sheet (positions matrix with asset classes)
+            # Create Matrix sheet (positions matrix with asset classes) - shows weights
             matrix_df = self._create_matrix_sheet(multi_portfolio)
             matrix_df.to_excel(writer, sheet_name='Matrix', index=False)
+            
+            # Create Amt_Matrix sheet (same format as Matrix but with base currency amounts)
+            amt_matrix_df = self._create_amt_matrix_sheet(multi_portfolio)
+            amt_matrix_df.to_excel(writer, sheet_name='Amt_Matrix', index=False)
             
             # Create metadata sheet if requested
             if include_metadata:
@@ -238,7 +242,7 @@ class IBKRStandardExporter:
         asset_class_cols = 4  # E-H columns (Total, Equity, Bond, Gold)
         asset_weight_cols = 1 + len(remaining_symbols)  # Total + individual symbols
         
-        header_row1 = ['Portfolio Matrix', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
+        header_row1 = ['Portfolio Matrix (Base: S$)', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
         
         # Add empty cells for remaining asset weight columns
         header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
@@ -274,7 +278,7 @@ class IBKRStandardExporter:
         matrix_rows.append(asset_class_row)
         
         # Row 5: Column headers
-        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash %', 'Total', 'Equity', 'Bond', 'Gold']
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total', 'Equity', 'Bond', 'Gold']
         
         # Add symbol codes as column headers with Total at the beginning
         if remaining_symbols:
@@ -334,6 +338,182 @@ class IBKRStandardExporter:
             if remaining_symbols:
                 account_row.append(individual_weights_total)  # Total in first asset weight column 
                 account_row.extend(individual_weights)  # All individual weights
+            else:
+                account_row.append(0)  # Total is 0 if no symbols
+            
+            matrix_rows.append(account_row)
+        
+        # Convert to DataFrame
+        # Find the maximum row length to ensure all rows have the same number of columns
+        max_cols = max(len(row) for row in matrix_rows)
+        
+        # Pad shorter rows with empty strings
+        for row in matrix_rows:
+            while len(row) < max_cols:
+                row.append('')
+        
+        # Create DataFrame without headers (we'll handle headers in formatting)
+        df = pd.DataFrame(matrix_rows)
+        return df
+    
+    def _create_amt_matrix_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
+        """Create amount matrix sheet - same format as Matrix but showing base currency amounts instead of weights."""
+        
+        # Collect all unique symbols and their metadata (same as Matrix)
+        all_symbols = set()
+        symbol_metadata = {}  # symbol -> {asset_class, instrument_name}
+        account_data = {}
+        
+        for snapshot in multi_portfolio.snapshots:
+            account_summary = snapshot.get_positions_summary()
+            positions_dict = {}
+            
+            for pos in account_summary['positions']:
+                symbol = pos['Symbol']
+                all_symbols.add(symbol)
+                
+                # Get metadata from universe (priority source as requested)
+                instrument_info = get_instrument_info(symbol)
+                asset_class = get_asset_class(symbol)
+                
+                # Store metadata for later use
+                symbol_metadata[symbol] = {
+                    'asset_class': asset_class or 'Unknown',
+                    'instrument_name': instrument_info.instrument_name if instrument_info else symbol
+                }
+                
+                positions_dict[symbol] = {
+                    'market_value': pos.get('Market_Value', 0)  # Use market value in base currency
+                }
+            
+            # Calculate account summary values
+            nlv = float(account_summary['total_value'])
+            cash_value = 0
+            if snapshot.account_summary:
+                cash_value = float(snapshot.account_summary.total_cash_value or 0)
+            
+            # Use proper GrossPositionValue from IB API
+            gross_position_value = float(snapshot.account_summary.gross_position_value or 0) if snapshot.account_summary else 0
+            
+            account_data[snapshot.account_id] = {
+                'positions': positions_dict,
+                'nlv': nlv,
+                'cash': cash_value,
+                'gross_position_value': gross_position_value
+            }
+        
+        # Group symbols by asset class for proper layout
+        asset_classes = {}
+        for symbol in all_symbols:
+            asset_class = symbol_metadata[symbol]['asset_class']
+            if asset_class not in asset_classes:
+                asset_classes[asset_class] = []
+            asset_classes[asset_class].append(symbol)
+        
+        # Sort asset classes and symbols within each class
+        sorted_asset_classes = sorted(asset_classes.keys())
+        for asset_class in asset_classes:
+            asset_classes[asset_class] = sorted(asset_classes[asset_class])
+        
+        # Build the matrix in the exact format requested
+        matrix_rows = []
+        
+        # Row 1: Portfolio Matrix header with asset class amount and asset amount sections
+        remaining_symbols = []
+        for asset_class in sorted_asset_classes:
+            remaining_symbols.extend(asset_classes[asset_class])
+        
+        header_row1 = ['Portfolio Matrix (S$)', '', '', '', 'Asset class amount (S$)', '', '', '', 'Asset amount (S$)']
+        
+        # Add empty cells for remaining asset amount columns
+        header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
+        matrix_rows.append(header_row1)
+        
+        # Row 2: Export Time and instrument names
+        export_time = datetime.now().strftime('%-m/%-d/%y %H:%M')
+        header_row2 = ['Export Time', export_time, '', '', 'Total', '', '', '']
+        
+        # Add instrument names for each symbol with Total first
+        if remaining_symbols:
+            header_row2.append('Total')  # Total for individual amounts
+            for symbol in remaining_symbols:
+                instrument_name = symbol_metadata[symbol]['instrument_name']
+                header_row2.append(instrument_name)
+        
+        matrix_rows.append(header_row2)
+        
+        # Row 3: Empty row
+        empty_row = [''] * len(header_row2)
+        matrix_rows.append(empty_row)
+        
+        # Row 4: Asset class row
+        asset_class_row = ['', '', '', '', 'Total', 'Equity', 'Bond', 'Gold']
+        
+        # Add asset class for individual symbols with Total first
+        if remaining_symbols:
+            asset_class_row.append('Total')  # Total for individual amounts
+            for symbol in remaining_symbols:
+                asset_class = symbol_metadata[symbol]['asset_class']
+                asset_class_row.append(asset_class)
+        
+        matrix_rows.append(asset_class_row)
+        
+        # Row 5: Column headers
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total (S$)', 'Equity (S$)', 'Bond (S$)', 'Gold (S$)']
+        
+        # Add symbol codes as column headers with Total at the beginning
+        if remaining_symbols:
+            column_headers.append('Total (S$)')  # Total for asset amount section
+            column_headers.extend([f'{symbol} (S$)' for symbol in remaining_symbols])
+        matrix_rows.append(column_headers)
+        
+        # Data rows: One row per account
+        for account_id in sorted(account_data.keys()):
+            data = account_data[account_id]
+            
+            # Calculate asset class amounts in SGD
+            equity_amount = 0
+            bond_amount = 0 
+            gold_amount = 0
+            
+            for symbol, pos_data in data['positions'].items():
+                asset_class = symbol_metadata[symbol]['asset_class'].lower()
+                market_value = pos_data['market_value']
+                
+                if 'equity' in asset_class or 'etf' in asset_class:
+                    equity_amount += market_value
+                elif 'bond' in asset_class or 'fixed' in asset_class:
+                    bond_amount += market_value
+                elif 'gold' in asset_class or 'commodity' in asset_class:
+                    gold_amount += market_value
+            
+            # Calculate individual symbol amounts and their total 
+            individual_amounts = []
+            individual_amounts_total = 0
+            for symbol in remaining_symbols:
+                if symbol in data['positions']:
+                    amount = data['positions'][symbol]['market_value']
+                else:
+                    amount = 0
+                individual_amounts.append(amount)
+                individual_amounts_total += amount
+            
+            # Build account row
+            account_row = [
+                account_id,
+                data['nlv'],  # Net Liquidation Value in SGD
+                (data['gross_position_value'] / data['nlv']) if data['nlv'] != 0 else 0,  # Ratio
+                data['cash'],  # Cash amount in SGD
+                equity_amount + bond_amount + gold_amount,  # Total asset class amounts
+                equity_amount,  # Equity amount in SGD
+                bond_amount,    # Bond amount in SGD
+                gold_amount     # Gold amount in SGD
+            ]
+            
+            # Add individual symbol amounts with total in first asset amount column
+            if remaining_symbols:
+                account_row.append(individual_amounts_total)  # Total in first asset amount column 
+                account_row.extend(individual_amounts)  # All individual amounts
             else:
                 account_row.append(0)  # Total is 0 if no symbols
             

@@ -105,16 +105,15 @@ class IBKRStandardExporter:
             # Calculate IBKR standard values
             nlv = float(account_summary['total_value'])  # Net Liquidation Value
             
-            # Calculate Securities Gross Position Value (sum of absolute values of all positions)
-            gross_position_value = 0
+            # Calculate Securities Gross Position Value using proper IB API value
             cash_value = 0
+            gross_position_value = 0
             
             if snapshot.account_summary:
                 cash_value = float(snapshot.account_summary.total_cash_value or 0)
-            
-            for pos in account_summary['positions']:
-                if pos.get('Market_Value'):
-                    gross_position_value += abs(float(pos['Market_Value']))
+                # Use the proper GrossPositionValue from IB API instead of manual calculation
+                # This prevents including master account values
+                gross_position_value = float(snapshot.account_summary.gross_position_value or 0)
             
             # Calculate ratios
             gross_nlv_ratio = gross_position_value / nlv if nlv != 0 else 0
@@ -203,7 +202,8 @@ class IBKRStandardExporter:
             if snapshot.account_summary:
                 cash_value = float(snapshot.account_summary.total_cash_value or 0)
             
-            gross_position_value = sum(abs(pos['market_value']) for pos in positions_dict.values())
+            # Use proper GrossPositionValue from IB API to avoid master account inclusion
+            gross_position_value = float(snapshot.account_summary.gross_position_value or 0) if snapshot.account_summary else 0
             
             account_data[snapshot.account_id] = {
                 'positions': positions_dict,
@@ -229,24 +229,31 @@ class IBKRStandardExporter:
         matrix_rows = []
         
         # Row 1: Portfolio Matrix header with asset class weight and asset weight sections
-        header_row1 = ['Portfolio Matrix', '', '', '', 'Asset class weight', '', '', 'Asset weight']
-        
-        # Add empty cells for remaining symbols
         remaining_symbols = []
         for asset_class in sorted_asset_classes:
             remaining_symbols.extend(asset_classes[asset_class])
         
-        header_row1.extend([''] * (len(remaining_symbols) - 1))  # -1 because we already added one under 'Asset weight'
+        # Calculate section positions dynamically
+        portfolio_matrix_cols = 4  # A-D columns
+        asset_class_cols = 4  # E-H columns (Total, Equity, Bond, Gold)
+        asset_weight_cols = 1 + len(remaining_symbols)  # Total + individual symbols
+        
+        header_row1 = ['Portfolio Matrix', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
+        
+        # Add empty cells for remaining asset weight columns
+        header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
         matrix_rows.append(header_row1)
         
         # Row 2: Export Time and instrument names
         export_time = datetime.now().strftime('%-m/%-d/%y %H:%M')
-        header_row2 = ['Export Time', export_time, '', '', '', '', '']
+        header_row2 = ['Export Time', export_time, '', '', 'Total', '', '', '']
         
-        # Add instrument names for each symbol
-        for symbol in remaining_symbols:
-            instrument_name = symbol_metadata[symbol]['instrument_name']
-            header_row2.append(instrument_name)
+        # Add instrument names for each symbol with Total first
+        if remaining_symbols:
+            header_row2.append('Total')  # Total for individual weights
+            for symbol in remaining_symbols:
+                instrument_name = symbol_metadata[symbol]['instrument_name']
+                header_row2.append(instrument_name)
         
         matrix_rows.append(header_row2)
         
@@ -255,20 +262,24 @@ class IBKRStandardExporter:
         matrix_rows.append(empty_row)
         
         # Row 4: Asset class row
-        asset_class_row = ['', '', '', '', 'Asset class', '', '']
+        asset_class_row = ['', '', '', '', 'Total', 'Equity', 'Bond', 'Gold']
         
-        # Add asset class for each symbol
-        for symbol in remaining_symbols:
-            asset_class = symbol_metadata[symbol]['asset_class']
-            asset_class_row.append(asset_class)
+        # Add asset class for individual symbols with Total first
+        if remaining_symbols:
+            asset_class_row.append('Total')  # Total for individual weights
+            for symbol in remaining_symbols:
+                asset_class = symbol_metadata[symbol]['asset_class']
+                asset_class_row.append(asset_class)
         
         matrix_rows.append(asset_class_row)
         
         # Row 5: Column headers
-        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash %', 'Equity', 'Bond', 'Gold']
+        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash %', 'Total', 'Equity', 'Bond', 'Gold']
         
-        # Add symbol codes as column headers
-        column_headers.extend(remaining_symbols)
+        # Add symbol codes as column headers with Total at the beginning
+        if remaining_symbols:
+            column_headers.append('Total')  # Total for asset weight section
+            column_headers.extend(remaining_symbols)
         matrix_rows.append(column_headers)
         
         # Data rows: One row per account
@@ -293,23 +304,38 @@ class IBKRStandardExporter:
             
             # Build account row with proper number formatting
             # Convert percentages to decimals for Excel percentage formatting
-            account_row = [
-                account_id,
-                data['nlv'],  # Will be formatted as #,###.00 in Excel
-                (data['gross_position_value'] / data['nlv']) if data['nlv'] != 0 else 0,  # Will be formatted as 0.00
-                (data['cash'] / data['nlv']) if data['nlv'] != 0 else 0,  # Will be formatted as 0.00% in Excel
-                equity_weight / 100.0 if equity_weight != 0 else 0,  # Convert to decimal for Excel % formatting
-                bond_weight / 100.0 if bond_weight != 0 else 0,
-                gold_weight / 100.0 if gold_weight != 0 else 0
-            ]
             
-            # Add individual symbol weights (convert to decimals for Excel percentage formatting)
+            # Calculate asset class total (for E column - first asset class column)
+            asset_class_total = (equity_weight + bond_weight + gold_weight) / 100.0
+            
+            # Calculate individual symbol weights and their total 
+            individual_weights = []
+            individual_weights_total = 0
             for symbol in remaining_symbols:
                 if symbol in data['positions']:
                     weight = data['positions'][symbol]['weight'] / 100.0 if data['positions'][symbol]['weight'] != 0 else 0
                 else:
                     weight = 0
-                account_row.append(weight)
+                individual_weights.append(weight)
+                individual_weights_total += weight
+            
+            account_row = [
+                account_id,
+                data['nlv'],  # Will be formatted as #,###.00 in Excel
+                (data['gross_position_value'] / data['nlv']) if data['nlv'] != 0 else 0,  # Will be formatted as 0.00
+                (data['cash'] / data['nlv']) if data['nlv'] != 0 else 0,  # Will be formatted as 0.00% in Excel
+                asset_class_total,  # Total of asset class weights (E column - first in asset class section)
+                equity_weight / 100.0 if equity_weight != 0 else 0,
+                bond_weight / 100.0 if bond_weight != 0 else 0,
+                gold_weight / 100.0 if gold_weight != 0 else 0
+            ]
+            
+            # Add individual symbol weights with total in first asset weight column
+            if remaining_symbols:
+                account_row.append(individual_weights_total)  # Total in first asset weight column 
+                account_row.extend(individual_weights)  # All individual weights
+            else:
+                account_row.append(0)  # Total is 0 if no symbols
             
             matrix_rows.append(account_row)
         
@@ -431,16 +457,16 @@ class IBKRStandardExporter:
         asset_weight_cell.alignment = Alignment(horizontal='center', vertical='center')
         
         # Merge cells for section headers
-        if sheet.max_column >= 8:
+        if sheet.max_column >= 9:
             # Merge Portfolio Matrix title
             sheet.merge_cells('A1:D1')
-            sheet.merge_cells('E1:G1')  # Asset class weight section
+            sheet.merge_cells('E1:H1')  # Asset class weight section (Total, Equity, Bond, Gold)
             
             # Calculate end column for Asset weight section
             end_col = sheet.max_column
-            if end_col >= 8:
+            if end_col >= 9:
                 end_col_letter = chr(ord('A') + end_col - 1)
-                sheet.merge_cells(f'H1:{end_col_letter}1')  # Asset weight section
+                sheet.merge_cells(f'I1:{end_col_letter}1')  # Asset weight section
         
         # Apply styling to merged cells
         for col in range(1, 5):  # Portfolio Matrix section
@@ -449,13 +475,13 @@ class IBKRStandardExporter:
             cell.fill = PatternFill(start_color='2E5090', end_color='2E5090', fill_type='solid')
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
-        for col in range(5, 8):  # Asset class weight section  
+        for col in range(5, 9):  # Asset class weight section (E-H)
             cell = sheet.cell(row=1, column=col)
             cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
             cell.fill = PatternFill(start_color='4A6FA5', end_color='4A6FA5', fill_type='solid')
             cell.alignment = Alignment(horizontal='center', vertical='center')
             
-        for col in range(8, sheet.max_column + 1):  # Asset weight section
+        for col in range(9, sheet.max_column + 1):  # Asset weight section (I onwards)
             cell = sheet.cell(row=1, column=col)
             cell.font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
             cell.fill = PatternFill(start_color='4A6FA5', end_color='4A6FA5', fill_type='solid')
@@ -469,7 +495,7 @@ class IBKRStandardExporter:
         export_value_cell.font = Font(name='Calibri', size=10, color='333333')
         
         # Row 2: Instrument names with subtle styling
-        for col in range(8, sheet.max_column + 1):
+        for col in range(9, sheet.max_column + 1):
             cell = sheet.cell(row=2, column=col)
             if cell.value:
                 cell.font = Font(name='Calibri', size=9, color='666666')
@@ -518,21 +544,31 @@ class IBKRStandardExporter:
                         cell.number_format = '0.00%'
                         cell.alignment = Alignment(horizontal='center', vertical='center')
                     
-                    # Asset class weights (Equity, Bond, Gold): Percentage format (0.00%)
-                    elif any(term in header_text for term in ['Equity', 'Bond', 'Gold']) and col <= 7:
+                    # Asset class weights (Total, Equity, Bond, Gold): Percentage format (0.00%)
+                    elif any(term in header_text for term in ['Equity', 'Bond', 'Gold', 'Total']) and col >= 5 and col <= 8:
                         cell.number_format = '0.00%'
                         cell.alignment = Alignment(horizontal='center', vertical='center')
-                        # Add subtle highlighting for non-zero asset class weights
-                        if cell.value > 0:
+                        # Special styling for Total column in asset class section
+                        if 'Total' in header_text and col == 5:
+                            if cell.value > 0:
+                                cell.fill = PatternFill(start_color='D4EDDA', end_color='D4EDDA', fill_type='solid')
+                                cell.font = Font(name='Calibri', size=10, bold=True, color='155724')
+                        # Subtle highlighting for non-zero asset class weights
+                        elif cell.value > 0:
                             cell.fill = PatternFill(start_color='E8F5E8', end_color='E8F5E8', fill_type='solid')
                             cell.font = Font(name='Calibri', size=10, bold=True, color='2E5090')
                     
                     # Individual symbol weights: Percentage format (0.00%) with highlighting
-                    elif col > 7:  # Individual symbol weights
+                    elif col > 8:  # Individual symbol weights (including Total column for asset weights)
                         cell.number_format = '0.00%'
                         cell.alignment = Alignment(horizontal='center', vertical='center')
-                        # Highlight non-zero positions with subtle background
-                        if cell.value > 0:
+                        # Special styling for Total column in asset weight section
+                        if col == 9 and 'Total' in str(sheet.cell(row=5, column=col).value):
+                            if cell.value > 0:
+                                cell.fill = PatternFill(start_color='FFF3CD', end_color='FFF3CD', fill_type='solid')
+                                cell.font = Font(name='Calibri', size=10, bold=True, color='856404')
+                        # Highlight non-zero individual positions with subtle background
+                        elif cell.value > 0:
                             cell.fill = PatternFill(start_color='FFF2E8', end_color='FFF2E8', fill_type='solid')
                             cell.font = Font(name='Calibri', size=10, bold=True, color='B8860B')
                 
@@ -547,30 +583,48 @@ class IBKRStandardExporter:
             'B': 20,  # Net Liquidation Value - wider for currency values
             'C': 10,  # Gross/NLV - compact for ratios
             'D': 10,  # Cash % - compact for percentages
-            'E': 10,  # Equity - compact for percentages
-            'F': 10,  # Bond - compact for percentages
-            'G': 10,  # Gold - compact for percentages
+            'E': 12,  # Total (Asset class) - slightly wider for totals
+            'F': 10,  # Equity - compact for percentages
+            'G': 10,  # Bond - compact for percentages
+            'H': 10,  # Gold - compact for percentages
+            'I': 12,  # Total (Asset weight) - slightly wider for totals
         }
         
         for col_letter, width in column_widths.items():
             sheet.column_dimensions[col_letter].width = width
         
         # Set width for individual symbol columns (make them more readable)
-        for col in range(8, sheet.max_column + 1):
+        for col in range(10, sheet.max_column + 1):
             col_letter = chr(ord('A') + col - 1)
             sheet.column_dimensions[col_letter].width = 10  # Increased from 8 to 10 for better readability
         
         # Freeze panes: Freeze first 4 columns and first 5 rows
         sheet.freeze_panes = 'E6'
         
-        # Add professional alternating row colors for data rows
+        # Add professional alternating row colors for data rows with better logic
         for row in range(6, sheet.max_row + 1):
-            if row % 2 == 0:  # Even rows get subtle background
-                for col in range(1, sheet.max_column + 1):
-                    cell = sheet.cell(row=row, column=col)
-                    # Only apply alternating color if cell doesn't already have conditional formatting
-                    if not hasattr(cell.fill, 'start_color') or cell.fill.start_color.rgb in [None, 'FFFFFF', '00000000']:
-                        cell.fill = PatternFill(start_color='F8F9FA', end_color='F8F9FA', fill_type='solid')
+            is_even_row = (row % 2 == 0)
+            for col in range(1, sheet.max_column + 1):
+                cell = sheet.cell(row=row, column=col)
+                
+                # Check if cell already has conditional formatting (non-zero values)
+                has_conditional_formatting = False
+                if hasattr(cell, 'fill') and cell.fill and hasattr(cell.fill, 'start_color'):
+                    current_color = cell.fill.start_color.rgb
+                    if current_color and current_color not in [None, 'FFFFFF', '00FFFFFF', '00000000']:
+                        has_conditional_formatting = True
+                
+                # Apply alternating row color only if no conditional formatting exists
+                if not has_conditional_formatting and is_even_row:
+                    cell.fill = PatternFill(start_color='FAFBFC', end_color='FAFBFC', fill_type='solid')
+                elif not has_conditional_formatting:
+                    # Ensure odd rows have clean white background
+                    cell.fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+                
+                # Add subtle hover-like effect for account column
+                if col == 1 and cell.value:  # Account ID column
+                    cell.fill = PatternFill(start_color='E8F1FF', end_color='E8F1FF', fill_type='solid')
+                    cell.font = Font(name='Calibri', size=10, bold=True, color='2E5090')
         
         # Add separator lines between major sections
         # Vertical separator between account info and asset class weights (column D)
@@ -583,9 +637,9 @@ class IBKRStandardExporter:
                 bottom=cell.border.bottom
             )
         
-        # Vertical separator between asset class weights and individual weights (column G) 
+        # Vertical separator between asset class weights and individual weights (column H) 
         for row in range(5, sheet.max_row + 1):
-            cell = sheet.cell(row=row, column=7)  # Column G
+            cell = sheet.cell(row=row, column=8)  # Column H (after Gold column)
             cell.border = Border(
                 left=cell.border.left,
                 right=Side(style='medium', color='2E5090'),

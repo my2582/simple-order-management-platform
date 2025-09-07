@@ -67,9 +67,10 @@ class IBConnector:
         logger.error("1. Ensure TWS or IB Gateway is running")
         logger.error("2. Check API settings in TWS/Gateway:")
         logger.error("   - Enable API in Global Configuration > API Settings")
-        logger.error("   - Set Socket Port (7497 for TWS, 4002 for Gateway)")
+        logger.error("   - Set Socket Port (4001 for Live Gateway, 4002 for Paper Gateway, 7497 for TWS)")
         logger.error("   - Enable 'Read-Only API'")
         logger.error("3. Verify no firewall blocking the connection")
+        logger.error("4. Port priority: 4001 (Live) -> 4002 (Paper) -> 7497 (TWS) -> 7496 (TWS Alt)")
         
         raise ConnectionError(error_msg)
     

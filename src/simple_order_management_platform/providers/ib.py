@@ -157,7 +157,7 @@ class IBProvider(BaseProvider):
             return 'TRADES'
     
     def get_current_prices(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
-        """Get current prices for a list of symbols.
+        """Get current prices for a list of symbols using universe data.
         
         Args:
             symbols: List of symbol strings to get prices for
@@ -167,39 +167,48 @@ class IBProvider(BaseProvider):
         """
         prices_dict = {}
         
+        # Import universe manager
+        from ..models.universe import universe_manager
+        
         for symbol in symbols:
             try:
-                # Create a generic stock contract for the symbol
-                # This is a simplified approach - in production you'd want to 
-                # use the universe data to create proper contracts
-                from ib_insync import Stock
-                contract = Stock(symbol, 'SMART', 'USD')
+                # Get instrument info from universe
+                instrument = universe_manager.get_instrument(symbol)
+                if not instrument:
+                    logger.warning(f"Symbol {symbol} not found in universe, skipping")
+                    continue
+                
+                # Create appropriate contract based on instrument type
+                contract = self._create_contract_from_universe(instrument)
+                if not contract:
+                    logger.warning(f"Could not create contract for {symbol}, skipping")
+                    continue
                 
                 # Get market data
                 ticker = self.ib.reqMktData(contract, '', False, False)
                 
-                # Wait for data
-                self.ib.sleep(2)
+                # Wait for data (shorter wait time for efficiency)
+                self.ib.sleep(1)
                 
                 # Get the price
                 close_price = ticker.marketPrice()
                 if close_price and close_price > 0:
                     prices_dict[symbol] = {
                         'close_price': float(close_price),
-                        'currency': 'USD',
+                        'currency': instrument.currency,
                         'data_date': datetime.now().date().isoformat()
                     }
-                    logger.debug(f"Got price for {symbol}: {close_price}")
+                    logger.debug(f"Got price for {symbol}: {close_price} {instrument.currency}")
                 else:
                     # Try last price or close price
                     last_price = ticker.last
                     if last_price and last_price > 0:
                         prices_dict[symbol] = {
                             'close_price': float(last_price),
-                            'currency': 'USD',
+                            'currency': instrument.currency,
                             'data_date': datetime.now().date().isoformat()
                         }
-                        logger.debug(f"Got last price for {symbol}: {last_price}")
+                        logger.debug(f"Got last price for {symbol}: {last_price} {instrument.currency}")
                     else:
                         logger.warning(f"No valid price data for {symbol}")
                 
@@ -211,3 +220,33 @@ class IBProvider(BaseProvider):
                 continue
         
         return prices_dict
+    
+    def _create_contract_from_universe(self, instrument) -> Optional[Any]:
+        """Create appropriate IB contract from universe instrument data."""
+        try:
+            from ib_insync import Stock, Future, Option, Index
+            
+            symbol = instrument.ib_symbol
+            exchange = instrument.exchange
+            currency = instrument.currency
+            asset_class = instrument.asset_class.lower()
+            
+            if asset_class in ['equity', 'etf']:
+                return Stock(symbol, exchange, currency)
+            elif asset_class in ['commodity', 'futures']:
+                # For futures, we may need additional parsing
+                return Future(symbol, exchange, currency)
+            elif asset_class == 'bonds':
+                # Bonds might be handled differently
+                return Stock(symbol, exchange, currency)  # Fallback to stock for now
+            elif asset_class == 'option':
+                # Options need special parsing - for now skip complex options
+                logger.debug(f"Skipping option symbol {symbol} - complex parsing required")
+                return None
+            else:
+                # Default to stock
+                return Stock(symbol, exchange, currency)
+                
+        except Exception as e:
+            logger.warning(f"Error creating contract for {instrument.ib_symbol}: {e}")
+            return None

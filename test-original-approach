@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Test script to verify the original approach fix works for futures contracts."""
+
+import sys
+import logging
+from datetime import datetime
+import pandas as pd
+
+# Add src to path
+sys.path.insert(0, '/home/user/webapp/src')
+
+from simple_order_management_platform.core.connector import IBConnector
+from simple_order_management_platform.providers.ib import IBProvider
+from simple_order_management_platform.models.universe import universe_manager
+from simple_order_management_platform.config.loader import config_loader
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def test_original_approach():
+    """Test if the original approach fix works for futures."""
+    
+    print(f"🧪 Testing Original Approach Fix - {datetime.now()}")
+    print("=" * 60)
+    
+    # Get a few futures symbols for testing
+    all_symbols = list(universe_manager.get_all_ib_symbols())
+    futures_symbols = []
+    
+    for symbol in all_symbols:
+        instrument = universe_manager.get_instrument(symbol)
+        if instrument and instrument.ib_security_type == 'FUT':
+            futures_symbols.append(symbol)
+            if len(futures_symbols) >= 5:  # Test with 5 futures
+                break
+    
+    if not futures_symbols:
+        print("❌ No futures symbols found in universe")
+        return
+    
+    print(f"📊 Testing with {len(futures_symbols)} futures symbols:")
+    for symbol in futures_symbols:
+        instrument = universe_manager.get_instrument(symbol)
+        print(f"  - {symbol}: {instrument.instrument_name} ({instrument.asset_class})")
+    print()
+    
+    try:
+        # Load config and connect
+        app_config = config_loader.load_app_config()
+        ib_settings = app_config.ib_settings
+        
+        print(f"🔗 Connecting to IBKR on {ib_settings['host']}:{ib_settings['port']}...")
+        
+        with IBConnector(
+            host=ib_settings['host'],
+            port=ib_settings['port'],
+            client_id=ib_settings['client_id']
+        ) as connector:
+            print(f"✅ Connected successfully!")
+            
+            provider = IBProvider(connector)
+            
+            print(f"💰 Testing original approach price download...")
+            prices = provider.get_current_prices(futures_symbols)
+            
+            print(f"\n📈 Results:")
+            print(f"Success: {len(prices)}/{len(futures_symbols)} symbols ({len(prices)/len(futures_symbols)*100:.1f}%)")
+            
+            if prices:
+                print(f"\n✅ Successful prices:")
+                for symbol, price_data in prices.items():
+                    print(f"  {symbol}: {price_data['close_price']:.4f} {price_data['currency']} ({price_data['price_source']})")
+            
+            failed_symbols = set(futures_symbols) - set(prices.keys())
+            if failed_symbols:
+                print(f"\n❌ Failed symbols:")
+                for symbol in failed_symbols:
+                    print(f"  {symbol}")
+                    
+            print(f"\n🎯 Test completed at {datetime.now()}")
+            
+            return len(prices) > 0
+    
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        return False
+
+if __name__ == "__main__":
+    success = test_original_approach()
+    sys.exit(0 if success else 1)

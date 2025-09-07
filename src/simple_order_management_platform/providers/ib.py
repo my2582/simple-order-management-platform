@@ -157,7 +157,7 @@ class IBProvider(BaseProvider):
             return 'TRADES'
     
     def get_current_prices(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
-        """Get current prices for a list of symbols using universe data.
+        """Get current prices for a list of symbols using original instrument models approach.
         
         Args:
             symbols: List of symbol strings to get prices for
@@ -173,22 +173,30 @@ class IBProvider(BaseProvider):
         
         logger.info(f"Starting price download for {len(symbols)} symbols")
         
-        # First, create all contracts and request market data
+        # First, create all contracts and request market data using original instrument models
         symbol_to_ticker = {}
         
         for symbol in symbols:
             try:
                 # Get instrument info from universe
-                instrument = universe_manager.get_instrument(symbol)
-                if not instrument:
+                universe_instrument = universe_manager.get_instrument(symbol)
+                if not universe_instrument:
                     logger.warning(f"Symbol {symbol} not found in universe, skipping")
                     continue
                 
-                # Create appropriate contract based on instrument type
-                contract = self._create_contract_from_universe(instrument)
+                # Convert universe instrument to proper instrument model (like original approach)
+                instrument_model = self._create_instrument_model_from_universe(universe_instrument)
+                if not instrument_model:
+                    logger.warning(f"Could not create instrument model for {symbol}, skipping")
+                    continue
+                
+                # Use the instrument model's to_ib_contract() method (original working approach)
+                contract = instrument_model.to_ib_contract()
                 if not contract:
                     logger.warning(f"Could not create contract for {symbol}, skipping")
                     continue
+                
+                logger.debug(f"Created contract for {symbol}: {contract}")
                 
                 # Validate contract first
                 try:
@@ -212,7 +220,7 @@ class IBProvider(BaseProvider):
                 # Use empty string for generic ticks, snapshot=False for streaming
                 ticker = self.ib.reqMktData(contract, '', False, False)
                 if ticker:
-                    symbol_to_ticker[symbol] = (ticker, instrument)
+                    symbol_to_ticker[symbol] = (ticker, universe_instrument)
                     active_tickers.append(ticker)
                     logger.debug(f"Requested market data for {symbol}")
                 else:
@@ -240,7 +248,7 @@ class IBProvider(BaseProvider):
                 break
         
         # Collect prices
-        for symbol, (ticker, instrument) in symbol_to_ticker.items():
+        for symbol, (ticker, universe_instrument) in symbol_to_ticker.items():
             try:
                 # Try multiple price sources with better validation
                 price = None
@@ -291,11 +299,11 @@ class IBProvider(BaseProvider):
                 if price and price > 0:
                     prices_dict[symbol] = {
                         'close_price': float(price),
-                        'currency': instrument.currency,
+                        'currency': universe_instrument.currency,
                         'data_date': datetime.now().date().isoformat(),
                         'price_source': price_source
                     }
-                    logger.info(f"✓ {symbol}: {price:.4f} {instrument.currency} ({price_source})")
+                    logger.info(f"✓ {symbol}: {price:.4f} {universe_instrument.currency} ({price_source})")
                 else:
                     # Provide detailed debug info for failed symbols
                     debug_info = {
@@ -323,6 +331,87 @@ class IBProvider(BaseProvider):
         logger.info(f"Price download completed: {len(prices_dict)}/{len(symbols)} symbols ({success_rate:.1f}% success rate)")
         
         return prices_dict
+    
+    def _create_instrument_model_from_universe(self, universe_instrument) -> Optional[Any]:
+        """Create proper instrument model from universe data using original working approach."""
+        try:
+            from ..models.futures import FuturesContract, AssetClass
+            from ..models.stocks import StockContract, StockAssetClass
+            from ..models.base import ProcessingStatus
+            
+            # Extract data from universe instrument
+            symbol = universe_instrument.ib_symbol
+            security_type = universe_instrument.ib_security_type
+            asset_class_str = universe_instrument.asset_class.lower()
+            exchange = universe_instrument.exchange
+            currency = universe_instrument.currency
+            
+            logger.debug(f"Creating instrument model for {symbol}: class={asset_class_str}, type={security_type}, exchange={exchange}")
+            
+            # Handle futures using original FuturesContract model (this is what worked!)
+            if security_type == 'FUT' or asset_class_str in ['commodity', 'bonds', 'currency']:
+                # Map asset class to enum
+                asset_class_mapping = {
+                    'commodity': AssetClass.COMMODITY,
+                    'bonds': AssetClass.BONDS,
+                    'currency': AssetClass.CURRENCY,
+                    'equity': AssetClass.EQUITY
+                }
+                
+                asset_class_enum = asset_class_mapping.get(asset_class_str, AssetClass.COMMODITY)
+                
+                # Create FuturesContract using the ORIGINAL working approach
+                futures_contract = FuturesContract(
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    description=universe_instrument.instrument_name,
+                    original_exchange=exchange,
+                    original_currency=currency,
+                    asset_class=asset_class_enum,
+                    region=universe_instrument.region,
+                    multiplier=universe_instrument.multiplier or 1.0,
+                    status=ProcessingStatus.PENDING
+                )
+                
+                logger.debug(f"Created FuturesContract for {symbol}: {futures_contract}")
+                return futures_contract
+            
+            # Handle stocks and ETFs using StockContract model
+            elif security_type == 'STK' or asset_class_str in ['equity', 'etf']:
+                # Map asset class to enum
+                stock_asset_class = StockAssetClass.ETF if asset_class_str == 'etf' else StockAssetClass.EQUITY
+                
+                # Determine primary exchange for SMART routing
+                primary_exchange = exchange
+                if exchange == 'US' and currency == 'USD':
+                    primary_exchange = 'NASDAQ'  # Default for generic US
+                
+                # Create StockContract using the ORIGINAL working approach
+                stock_contract = StockContract(
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    description=universe_instrument.instrument_name,
+                    original_exchange=exchange,
+                    original_currency=currency,
+                    asset_class=stock_asset_class,
+                    region=universe_instrument.region,
+                    multiplier=universe_instrument.multiplier or 1.0,
+                    primary_exchange=primary_exchange,
+                    status=ProcessingStatus.PENDING
+                )
+                
+                logger.debug(f"Created StockContract for {symbol}: {stock_contract}")
+                return stock_contract
+            
+            else:
+                logger.debug(f"Unsupported instrument type for {symbol}: {security_type}/{asset_class_str}")
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Error creating instrument model for {universe_instrument.ib_symbol}: {e}")
+            return None
     
     def _create_contract_from_universe(self, instrument) -> Optional[Any]:
         """Create appropriate IB contract from universe instrument data."""

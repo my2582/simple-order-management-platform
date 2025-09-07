@@ -66,6 +66,28 @@ app:
         - "market_data"
         - "universe_update"
         - "price_download"
+    
+    paper_trader:
+      description: "Paper Trading Account"
+      host: "127.0.0.1"
+      port: 4002  # IB Gateway Paper account
+      client_id: 3
+      timeout: 30
+      alternative_ports: [4001, 7497, 7496]
+      permissions:
+        - "portfolio_download"
+        - "market_data"
+    
+    alternative_live:
+      description: "Alternative Live Account"
+      host: "127.0.0.1"
+      port: 7497  # TWS Live account
+      client_id: 4
+      timeout: 30
+      alternative_ports: [4001, 4002, 7496]
+      permissions:
+        - "portfolio_download"
+        - "market_data"
   
   # Legacy IB settings (for backward compatibility)
   ib:

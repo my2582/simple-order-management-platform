@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Test script to generate sample Excel output with new formatting without IBKR connection."""
+
+import sys
+import logging
+from datetime import datetime
+from decimal import Decimal
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, '/home/user/webapp/src')
+
+from simple_order_management_platform.models.portfolio import (
+    Position, AccountSummary, PortfolioSnapshot, MultiAccountPortfolio
+)
+from simple_order_management_platform.utils.ibkr_exporters import export_ibkr_portfolio_report
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def create_sample_portfolio_data():
+    """Create sample portfolio data for testing Excel formatting."""
+    
+    print("🧪 Creating sample portfolio data for Excel formatting test")
+    
+    # Create sample positions for different asset classes
+    sample_positions_1 = [
+        Position(
+            account_id="U12803113",
+            symbol="IVV",
+            contract_id=12345,
+            exchange="ARCA",
+            currency="USD",
+            sec_type="STK",
+            position=Decimal("10"),
+            market_price=Decimal("450.25"),
+            market_value=Decimal("4502.50"),
+            avg_cost=Decimal("440.00")
+        ),
+        Position(
+            account_id="U12803113", 
+            symbol="IAU",
+            contract_id=23456,
+            exchange="ARCA",
+            currency="USD",
+            sec_type="STK",
+            position=Decimal("5"),
+            market_price=Decimal("38.75"),
+            market_value=Decimal("193.75"),
+            avg_cost=Decimal("37.50")
+        ),
+        Position(
+            account_id="U12803113",
+            symbol="BND",
+            contract_id=34567,
+            exchange="NASDAQ",
+            currency="USD", 
+            sec_type="STK",
+            position=Decimal("20"),
+            market_price=Decimal("76.50"),
+            market_value=Decimal("1530.00"),
+            avg_cost=Decimal("75.00")
+        )
+    ]
+    
+    sample_positions_2 = [
+        Position(
+            account_id="U13382000",
+            symbol="SPMO",
+            contract_id=45678,
+            exchange="ARCA",
+            currency="USD",
+            sec_type="STK",
+            position=Decimal("25"),
+            market_price=Decimal("58.30"),
+            market_value=Decimal("1457.50"),
+            avg_cost=Decimal("55.00")
+        ),
+        Position(
+            account_id="U13382000",
+            symbol="IVV", 
+            contract_id=12345,
+            exchange="ARCA",
+            currency="USD",
+            sec_type="STK",
+            position=Decimal("30"),
+            market_price=Decimal("450.25"),
+            market_value=Decimal("13507.50"),
+            avg_cost=Decimal("435.00")
+        )
+    ]
+    
+    # Create account summaries
+    account_summary_1 = AccountSummary(
+        account_id="U12803113",
+        account_type="Individual",
+        currency="USD",
+        net_liquidation=Decimal("6500.00"),
+        total_cash_value=Decimal("273.75"),
+        gross_position_value=Decimal("6226.25"),
+        buying_power=Decimal("26000.00")
+    )
+    
+    account_summary_2 = AccountSummary(
+        account_id="U13382000", 
+        account_type="Individual",
+        currency="USD",
+        net_liquidation=Decimal("16000.00"),
+        total_cash_value=Decimal("1035.00"),
+        gross_position_value=Decimal("14965.00"),
+        buying_power=Decimal("64000.00")
+    )
+    
+    # Create portfolio snapshots
+    snapshot_1 = PortfolioSnapshot(
+        account_id="U12803113",
+        timestamp=datetime.now(),
+        positions=sample_positions_1,
+        account_summary=account_summary_1
+    )
+    
+    snapshot_2 = PortfolioSnapshot(
+        account_id="U13382000",
+        timestamp=datetime.now(),
+        positions=sample_positions_2,
+        account_summary=account_summary_2
+    )
+    
+    # Create multi-account portfolio
+    multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())
+    multi_portfolio.add_snapshot(snapshot_1)
+    multi_portfolio.add_snapshot(snapshot_2)
+    
+    return multi_portfolio
+
+def test_excel_formatting():
+    """Test the new Excel formatting with sample data."""
+    
+    print("📊 Testing Excel formatting with enhanced design...")
+    
+    try:
+        # Create sample portfolio data
+        multi_portfolio = create_sample_portfolio_data()
+        
+        # Export to Excel with new formatting
+        output_path = export_ibkr_portfolio_report(
+            multi_portfolio=multi_portfolio,
+            output_filename="test_formatted_portfolio_positions.xlsx",
+            include_metadata=True
+        )
+        
+        print(f"✅ Test Excel file generated successfully!")
+        print(f"📁 File location: {output_path}")
+        print(f"🎨 Features tested:")
+        print(f"   - Matrix sheet with exact requested format")
+        print(f"   - Sophisticated color scheme and fonts")
+        print(f"   - Freeze panes (columns A-D, rows 1-5)")
+        print(f"   - Percentage and currency formatting")
+        print(f"   - Asset class grouping and metadata")
+        print(f"   - Professional borders and alternating rows")
+        print(f"   - Enhanced Summary sheet")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        logger.exception("Test failed")
+        return False
+
+if __name__ == "__main__":
+    success = test_excel_formatting()
+    sys.exit(0 if success else 1)

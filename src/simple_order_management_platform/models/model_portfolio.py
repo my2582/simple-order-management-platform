@@ -19,7 +19,7 @@ class ModelPortfolioHolding(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
     
     @validator('weight', pre=True)
@@ -47,7 +47,7 @@ class ModelPortfolio(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
     
     def add_holding(self, holding: ModelPortfolioHolding) -> None:
@@ -107,7 +107,7 @@ class ModelPortfolioManager(BaseModel):
     
     class Config:
         """Pydantic config."""
-        allow_population_by_field_name = True
+        populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
     
     def add_portfolio(self, portfolio: ModelPortfolio) -> None:

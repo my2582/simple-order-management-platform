@@ -122,9 +122,8 @@ def require_permission(permission: Permission):
     """Decorator to require specific permission for function execution."""
     def decorator(func):
         def wrapper(*args, **kwargs):
-            # This would be enhanced with actual user context in a real system
-            # For now, we'll assume portfolio_manager role for most operations
-            role = UserRole.PORTFOLIO_MANAGER  # This should come from user context
+            # Get current user role from context or default to portfolio manager
+            role = get_current_user_role()
             
             from ..config.loader import config_loader
             app_config = config_loader.load_app_config()
@@ -140,10 +139,24 @@ def require_permission(permission: Permission):
     return decorator
 
 
+# Global variable to store current user context
+_current_user_role: Optional[UserRole] = None
+
+
+def set_current_user_role(role: UserRole):
+    """Set current user role for the session."""
+    global _current_user_role
+    _current_user_role = role
+    logger.info(f"Set user role to: {role.value}")
+
+
 def get_current_user_role() -> UserRole:
     """Get current user role. In a real system, this would check authentication context."""
-    # For now, default to portfolio manager
-    # This should be enhanced to check actual user authentication
+    global _current_user_role
+    if _current_user_role is not None:
+        return _current_user_role
+    
+    # Default to portfolio manager if no role is set
     return UserRole.PORTFOLIO_MANAGER
 
 

@@ -661,6 +661,10 @@ def update_market_data(
     console.print("[bold blue]📊 Starting market data update[/bold blue]")
     
     try:
+        # Set role to Trade Assistant for market data operations
+        from .auth.permissions import set_current_user_role, UserRole
+        set_current_user_role(UserRole.TRADE_ASSISTANT)
+        
         with console.status("[bold green]Updating market data from IBKR..."):
             result = market_data_service.update_universe_prices(
                 force_update=force_update,
@@ -1310,6 +1314,10 @@ def update_market_data():
         console.print(f"Role: Trade Assistant")
         
         def update_cache():
+            # Set role to Trade Assistant for market data operations
+            from .auth.permissions import set_current_user_role
+            set_current_user_role(UserRole.TRADE_ASSISTANT)
+            
             # Create market data service
             market_data_service = MarketDataService()
             
@@ -1361,7 +1369,7 @@ def market_data_status():
         console.print(f"Current time (SGT): {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
         
         # Create market data service
-        market_data_service = MarketDataService(config)
+        market_data_service = MarketDataService()
         
         # Get cache status
         status = market_data_service.get_cache_status()

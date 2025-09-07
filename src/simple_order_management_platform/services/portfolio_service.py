@@ -67,12 +67,21 @@ class PortfolioService:
         try:
             logger.info(f"Requesting portfolio for account: {account_id}")
             
-            # Get all positions and filter by account
-            all_positions = self.ib.positions()
-            account_positions = [pos for pos in all_positions if pos.account == account_id]
+            # IBKR Read-only approach: Use portfolio() instead of positions()
+            # portfolio() is specifically for read-only access
+            logger.debug(f"Using portfolio() method for read-only access to account {account_id}")
+            
+            # Get portfolio (this is read-only and doesn't require subscriptions)
+            portfolio = self.ib.portfolio(account_id)
             
             # Wait for data to be received
             self.ib.sleep(1)
+            
+            # Convert Portfolio items to Position-like objects
+            account_positions = []
+            for item in portfolio:
+                # Portfolio items have contract, position, avgCost, etc.
+                account_positions.append(item)
             
             logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
             return account_positions
@@ -98,24 +107,24 @@ class PortfolioService:
         try:
             logger.info(f"Requesting account summary for: {account_id}")
             
-            # Define the tags we want to retrieve
-            tags = [
-                'NetLiquidation', 'TotalCashValue', 'SettledCash', 'AccruedCash',
-                'BuyingPower', 'EquityWithLoanValue', 'GrossPositionValue',
-                'UnrealizedPnL', 'RealizedPnL', 'AccountType'
-            ]
+            # Use Read-only approach: Get account values directly
+            # This method doesn't require subscriptions and is read-only
+            logger.debug(f"Using accountValues() for read-only access to account {account_id}")
             
-            # Request account summary
-            summary_items = self.ib.accountSummary(account_id)
+            # Get account values (read-only, no subscription needed)
+            account_values = self.ib.accountValues(account_id)
             
             # Wait for data
             self.ib.sleep(1)
             
             # Convert to dictionary
             summary_dict = {}
-            for item in summary_items:
+            for item in account_values:
                 if item.account == account_id:
-                    summary_dict[item.tag] = item.value
+                    # Map the tag names to our expected format
+                    tag = item.tag
+                    value = item.value
+                    summary_dict[tag] = value
                     
             logger.info(f"Retrieved account summary for {account_id}: {len(summary_dict)} items")
             return summary_dict

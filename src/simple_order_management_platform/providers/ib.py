@@ -208,8 +208,9 @@ class IBProvider(BaseProvider):
                     logger.warning(f"Contract validation error for {symbol}: {e}, skipping")
                     continue
                 
-                # Request market data with generic tick types
-                ticker = self.ib.reqMktData(contract, '100,101,104,106,165,221,225', False, False)
+                # Request market data - try delayed data if real-time fails
+                # Use empty string for generic ticks, snapshot=False for streaming
+                ticker = self.ib.reqMktData(contract, '', False, False)
                 if ticker:
                     symbol_to_ticker[symbol] = (ticker, instrument)
                     active_tickers.append(ticker)
@@ -227,35 +228,65 @@ class IBProvider(BaseProvider):
         
         # Wait for market data to populate
         logger.info(f"Waiting for market data for {len(active_tickers)} contracts...")
-        self.ib.sleep(3)  # Give more time for data to arrive
+        
+        # Use progressive waiting with multiple checks
+        for wait_round in range(3):
+            self.ib.sleep(1)  # Wait 1 second at a time
+            # Check if we have any data yet
+            data_count = sum(1 for _, (ticker, _) in symbol_to_ticker.items() 
+                           if hasattr(ticker, 'last') and ticker.last and not str(ticker.last).lower() in ['nan', 'none'])
+            logger.debug(f"Wait round {wait_round + 1}: {data_count}/{len(symbol_to_ticker)} tickers have data")
+            if data_count > len(symbol_to_ticker) * 0.3:  # If 30% have data, proceed
+                break
         
         # Collect prices
         for symbol, (ticker, instrument) in symbol_to_ticker.items():
             try:
-                # Try multiple price sources in order of preference
+                # Try multiple price sources with better validation
                 price = None
                 price_source = None
                 
-                # 1. Try market price (mid price)
-                if hasattr(ticker, 'marketPrice') and ticker.marketPrice():
-                    price = ticker.marketPrice()
-                    price_source = 'market'
+                # Helper function to validate price
+                def is_valid_price(p):
+                    try:
+                        return p is not None and float(p) > 0 and str(p).lower() not in ['nan', 'none', 'inf', '-inf']
+                    except (ValueError, TypeError):
+                        return False
                 
-                # 2. Try last traded price
-                elif hasattr(ticker, 'last') and ticker.last and ticker.last > 0:
-                    price = ticker.last
+                # 1. Try last traded price (most reliable)
+                if hasattr(ticker, 'last') and is_valid_price(ticker.last):
+                    price = float(ticker.last)
                     price_source = 'last'
                 
+                # 2. Try market price (mid price)
+                elif hasattr(ticker, 'marketPrice'):
+                    try:
+                        market_price = ticker.marketPrice()
+                        if is_valid_price(market_price):
+                            price = float(market_price)
+                            price_source = 'market'
+                    except Exception:
+                        pass
+                
                 # 3. Try close price
-                elif hasattr(ticker, 'close') and ticker.close and ticker.close > 0:
-                    price = ticker.close
+                elif hasattr(ticker, 'close') and is_valid_price(ticker.close):
+                    price = float(ticker.close)
                     price_source = 'close'
                 
                 # 4. Try bid/ask midpoint
                 elif (hasattr(ticker, 'bid') and hasattr(ticker, 'ask') and 
-                      ticker.bid and ticker.ask and ticker.bid > 0 and ticker.ask > 0):
-                    price = (ticker.bid + ticker.ask) / 2
+                      is_valid_price(ticker.bid) and is_valid_price(ticker.ask)):
+                    price = (float(ticker.bid) + float(ticker.ask)) / 2
                     price_source = 'bid_ask_mid'
+                
+                # 5. Try delayed prices (for subscription issues)
+                elif hasattr(ticker, 'delayedLast') and is_valid_price(ticker.delayedLast):
+                    price = float(ticker.delayedLast)
+                    price_source = 'delayed_last'
+                
+                elif hasattr(ticker, 'delayedClose') and is_valid_price(ticker.delayedClose):
+                    price = float(ticker.delayedClose)
+                    price_source = 'delayed_close'
                 
                 if price and price > 0:
                     prices_dict[symbol] = {
@@ -266,7 +297,16 @@ class IBProvider(BaseProvider):
                     }
                     logger.info(f"✓ {symbol}: {price:.4f} {instrument.currency} ({price_source})")
                 else:
-                    logger.warning(f"✗ {symbol}: No valid price data available (bid={getattr(ticker, 'bid', 'N/A')}, ask={getattr(ticker, 'ask', 'N/A')}, last={getattr(ticker, 'last', 'N/A')})")
+                    # Provide detailed debug info for failed symbols
+                    debug_info = {
+                        'last': getattr(ticker, 'last', 'N/A'),
+                        'bid': getattr(ticker, 'bid', 'N/A'),
+                        'ask': getattr(ticker, 'ask', 'N/A'),
+                        'close': getattr(ticker, 'close', 'N/A'),
+                        'delayed_last': getattr(ticker, 'delayedLast', 'N/A'),
+                        'contract': str(ticker.contract)
+                    }
+                    logger.warning(f"✗ {symbol}: No valid price data available. Debug: {debug_info}")
                 
             except Exception as e:
                 logger.warning(f"Failed to get price for {symbol}: {e}")
@@ -290,23 +330,44 @@ class IBProvider(BaseProvider):
             from ib_insync import Stock, Future, Option, Index, Contract
             
             symbol = instrument.ib_symbol
-            exchange = self._normalize_exchange_name(instrument.exchange)
+            security_type = instrument.ib_security_type
+            exchange = self._normalize_exchange_name(instrument.exchange, security_type)
             currency = instrument.currency
             asset_class = instrument.asset_class.lower()
-            security_type = instrument.ib_security_type
             
             logger.debug(f"Creating contract for {symbol}: class={asset_class}, type={security_type}, exchange={exchange}")
             
             # Handle different asset classes based on security type FIRST (more specific)
             if security_type == 'FUT':
-                # Futures - use the symbol as localSymbol for continuous contracts
-                contract = Future(localSymbol=symbol, exchange=exchange, currency=currency)
-                logger.debug(f"Created Future contract with localSymbol: {contract}")
-                return contract
+                # Futures - try multiple approaches for IBKR compatibility
+                try:
+                    # Method 1: Try with symbol as continuous contract
+                    contract = Future(symbol=symbol, exchange=exchange, currency=currency)
+                    logger.debug(f"Created Future contract with symbol: {contract}")
+                    return contract
+                except Exception:
+                    try:
+                        # Method 2: Try with localSymbol for continuous futures
+                        contract = Future(localSymbol=symbol, exchange=exchange, currency=currency)
+                        logger.debug(f"Created Future contract with localSymbol: {contract}")
+                        return contract
+                    except Exception:
+                        # Method 3: Generic contract for complex futures
+                        contract = Contract()
+                        contract.symbol = symbol
+                        contract.secType = 'FUT'
+                        contract.exchange = exchange
+                        contract.currency = currency
+                        logger.debug(f"Created generic Future contract: {contract}")
+                        return contract
                 
             elif security_type == 'STK' or asset_class in ['equity', 'etf']:
-                # Stocks and ETFs
-                contract = Stock(symbol, exchange, currency)
+                # Stocks and ETFs - use SMART routing for better success
+                if exchange in ['US', 'NASDAQ', 'ARCA'] and currency == 'USD':
+                    contract = Stock(symbol, 'SMART', currency)
+                    contract.primaryExchange = exchange if exchange != 'US' else 'NASDAQ'
+                else:
+                    contract = Stock(symbol, exchange, currency)
                 logger.debug(f"Created Stock contract: {contract}")
                 return contract
                 
@@ -351,12 +412,19 @@ class IBProvider(BaseProvider):
             logger.warning(f"Error creating contract for {instrument.ib_symbol}: {e}")
             return None
     
-    def _normalize_exchange_name(self, exchange: str) -> str:
+    def _normalize_exchange_name(self, exchange: str, security_type: str = None) -> str:
         """Normalize exchange names to IBKR expected values."""
+        # Handle problematic 'US' exchange for stocks
+        if exchange == 'US' and security_type in ['STK', 'FUND']:
+            return 'SMART'  # Use SMART routing for generic US exchange
+        
         exchange_mapping = {
             'NASDAQ': 'NASDAQ',
             'NYSE': 'NYSE', 
             'ARCA': 'ARCA',
+            'BATS': 'BATS',
+            'SMART': 'SMART',
+            'US': 'SMART',  # Map US to SMART routing
             'CME': 'CME',
             'CBOT': 'CBOT',
             'NYMEX': 'NYMEX',
@@ -365,10 +433,12 @@ class IBProvider(BaseProvider):
             'EUREX': 'EUREX',
             'SGX': 'SGX',
             'OSE': 'OSE',
-            'OSE.JPN': 'OSE.JPN',  # Japanese futures exchange
+            'OSE.JPN': 'OSE.JPN',
             'TSE': 'TSE',
+            'XETR': 'XETR',
             'LSE': 'LSE',
-            'SMART': 'SMART'  # IB's smart routing
+            'LSEETF': 'LSEETF',
+            'HKFE': 'HKFE'
         }
         
         # First try exact match
@@ -376,4 +446,4 @@ class IBProvider(BaseProvider):
             return exchange_mapping[exchange]
         
         # Then try uppercase match
-        return exchange_mapping.get(exchange.upper(), exchange)
+        return exchange_mapping.get(exchange.upper(), 'SMART')

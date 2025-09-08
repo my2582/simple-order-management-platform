@@ -303,24 +303,8 @@ class PortfolioSnapshot(BaseModel):
                 # Add contract for market data request
                 contracts_to_price.append(pos.contract)
                 
-                # Create basic position (market price will be added later)
-                position = Position(
-                    account_id=pos.account,
-                    symbol=pos.contract.symbol,
-                    contract_id=pos.contract.conId,
-                    exchange=pos.contract.exchange or pos.contract.primaryExchange or 'SMART',
-                    currency=pos.contract.currency,
-                    sec_type=pos.contract.secType,
-                    position=Decimal(str(pos.position)),
-                    market_price=None,  # Will be filled later
-                    market_value=None,  # Will be calculated later
-                    avg_cost=Decimal(str(pos.avgCost)) if pos.avgCost else None,
-                    unrealized_pnl=None,  # Will be calculated later
-                    realized_pnl=None,
-                    local_symbol=getattr(pos.contract, 'localSymbol', None),
-                    multiplier=safe_int_convert(getattr(pos.contract, 'multiplier', None)),
-                    last_trade_date=getattr(pos.contract, 'lastTradeDateOrContractMonth', None),
-                )
+                # Create basic position using from_ib_position method (market price will be added later)
+                position = Position.from_ib_position(pos, None)  # No market price initially
                 positions.append(position)
             
             # Get market data for all contracts

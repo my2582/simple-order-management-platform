@@ -37,6 +37,34 @@ class Position(BaseModel):
         if self.market_value is not None:
             return abs(self.market_value)
         return None
+    
+    @classmethod
+    def from_ib_portfolio_item(cls, item) -> 'Position':
+        """Create Position from ib_insync portfolio item.
+        
+        Args:
+            item: PortfolioItem from ib_insync
+            
+        Returns:
+            Position with values in account base currency
+        """
+        return cls(
+            account_id=item.account,
+            symbol=item.contract.symbol,
+            contract_id=item.contract.conId,
+            exchange=item.contract.exchange or item.contract.primaryExchange or 'SMART',
+            currency=item.contract.currency,
+            sec_type=item.contract.secType,
+            position=Decimal(str(item.position)),
+            market_price=Decimal(str(item.marketPrice)) if item.marketPrice else None,
+            market_value=Decimal(str(item.marketValue)) if item.marketValue else None,
+            avg_cost=Decimal(str(item.averageCost)) if item.averageCost else None,
+            unrealized_pnl=Decimal(str(item.unrealizedPNL)) if item.unrealizedPNL else None,
+            realized_pnl=Decimal(str(item.realizedPNL)) if item.realizedPNL else None,
+            local_symbol=getattr(item.contract, 'localSymbol', None),
+            multiplier=getattr(item.contract, 'multiplier', None),
+            last_trade_date=getattr(item.contract, 'lastTradeDateOrContractMonth', None),
+        )
 
 
 class AccountSummary(BaseModel):
@@ -63,6 +91,50 @@ class AccountSummary(BaseModel):
         """Pydantic config."""
         populate_by_name = True  # Updated for Pydantic v2
         use_enum_values = True
+    
+    @classmethod
+    def from_ib_account_values(cls, account_values, account_id: str) -> 'AccountSummary':
+        """Create AccountSummary from ib_insync account values.
+        
+        Args:
+            account_values: List of account values from ib.accountValues()
+            account_id: Account identifier
+            
+        Returns:
+            AccountSummary with values in account base currency
+        """
+        # Convert account values list to dictionary for easier access
+        values_dict = {}
+        base_currency = 'SGD'  # Default to SGD
+        
+        for av in account_values:
+            # Use base currency values (empty currency field means base currency)
+            if av.currency == '' or av.currency == 'BASE':
+                values_dict[av.tag] = av.value
+                if av.currency == 'BASE' and hasattr(av, 'currency'):
+                    # Try to get the actual base currency if available
+                    pass
+        
+        # Map IBKR account value tags to our fields
+        def safe_decimal(value_str: str) -> Optional[Decimal]:
+            try:
+                return Decimal(value_str) if value_str else None
+            except (ValueError, TypeError):
+                return None
+        
+        return cls(
+            account_id=account_id,
+            currency=base_currency,
+            net_liquidation=safe_decimal(values_dict.get('NetLiquidation')),
+            total_cash_value=safe_decimal(values_dict.get('TotalCashValue')),
+            settled_cash=safe_decimal(values_dict.get('SettledCash')),
+            accrued_cash=safe_decimal(values_dict.get('AccruedCash')),
+            buying_power=safe_decimal(values_dict.get('BuyingPower')),
+            equity_with_loan_value=safe_decimal(values_dict.get('EquityWithLoanValue')),
+            gross_position_value=safe_decimal(values_dict.get('GrossPositionValue')),
+            unrealized_pnl=safe_decimal(values_dict.get('UnrealizedPnL')),
+            realized_pnl=safe_decimal(values_dict.get('RealizedPnL')),
+        )
 
 
 class PortfolioSnapshot(BaseModel):
@@ -150,6 +222,71 @@ class PortfolioSnapshot(BaseModel):
             'account_id': self.account_id,
             'timestamp': self.timestamp.isoformat(),
         }
+    
+    @classmethod
+    def from_ib_connection(cls, ib, account: str = '') -> 'PortfolioSnapshot':
+        """Create portfolio snapshot directly from ib_insync connection.
+        
+        Args:
+            ib: Connected ib_insync IB instance
+            account: Account ID (empty string for single account)
+            
+        Returns:
+            PortfolioSnapshot with all values in account base currency (SGD)
+        """
+        try:
+            from ib_insync import util
+            
+            # Get portfolio items - these are already in account base currency
+            portfolio_items = ib.portfolio(account)
+            
+            # Get account values - these are already in account base currency  
+            account_values = ib.accountValues(account)
+            
+            # Create positions from portfolio items
+            positions = []
+            for item in portfolio_items:
+                if item.position == 0:
+                    continue  # Skip zero positions
+                    
+                position = Position(
+                    account_id=item.account,
+                    symbol=item.contract.symbol,
+                    contract_id=item.contract.conId,
+                    exchange=item.contract.exchange or item.contract.primaryExchange or 'SMART',
+                    currency=item.contract.currency,
+                    sec_type=item.contract.secType,
+                    position=Decimal(str(item.position)),
+                    market_price=Decimal(str(item.marketPrice)) if item.marketPrice else None,
+                    market_value=Decimal(str(item.marketValue)) if item.marketValue else None,
+                    avg_cost=Decimal(str(item.averageCost)) if item.averageCost else None,
+                    unrealized_pnl=Decimal(str(item.unrealizedPNL)) if item.unrealizedPNL else None,
+                    realized_pnl=Decimal(str(item.realizedPNL)) if item.realizedPNL else None,
+                    local_symbol=getattr(item.contract, 'localSymbol', None),
+                    multiplier=getattr(item.contract, 'multiplier', None),
+                    last_trade_date=getattr(item.contract, 'lastTradeDateOrContractMonth', None),
+                )
+                positions.append(position)
+            
+            # Create account summary from account values
+            account_summary = AccountSummary.from_ib_account_values(account_values, account or 'Default')
+            
+            return cls(
+                account_id=account or 'Default',
+                positions=positions,
+                account_summary=account_summary,
+                timestamp=datetime.now()
+            )
+            
+        except Exception as e:
+            # Fallback to empty portfolio if there's an error
+            print(f"Warning: Error creating portfolio snapshot for account {account}: {e}")
+            return cls(
+                account_id=account or 'Default',
+                positions=[],
+                account_summary=None,
+                timestamp=datetime.now()
+            )
 
 
 class MultiAccountPortfolio(BaseModel):
@@ -193,10 +330,45 @@ class MultiAccountPortfolio(BaseModel):
             'total_accounts': len(self.snapshots),
             'total_portfolio_value': float(total_value),
             'total_positions': total_positions,
-            'currency_breakdown_sgd': {k: float(v) for k, v in self.get_combined_currency_breakdown().items()},
             'timestamp': self.timestamp.isoformat(),
             'account_ids': self.get_account_ids(),
         }
+    
+    @classmethod
+    def from_ib_connection(cls, ib) -> 'MultiAccountPortfolio':
+        """Create multi-account portfolio from ib_insync connection.
+        
+        Args:
+            ib: Connected ib_insync IB instance
+            
+        Returns:
+            MultiAccountPortfolio with snapshots for all managed accounts
+        """
+        try:
+            # Get all managed accounts
+            managed_accounts = ib.managedAccounts()
+            
+            # Create portfolio snapshots for each account
+            snapshots = []
+            for account in managed_accounts:
+                try:
+                    snapshot = PortfolioSnapshot.from_ib_connection(ib, account)
+                    snapshots.append(snapshot)
+                except Exception as e:
+                    print(f"Warning: Failed to get portfolio for account {account}: {e}")
+                    continue
+            
+            return cls(
+                snapshots=snapshots,
+                timestamp=datetime.now()
+            )
+            
+        except Exception as e:
+            print(f"Error creating multi-account portfolio: {e}")
+            return cls(
+                snapshots=[],
+                timestamp=datetime.now()
+            )
 
 
 # Utility functions for easy integration
@@ -246,24 +418,16 @@ def export_portfolio_to_excel(portfolio: PortfolioSnapshot, filename: str) -> bo
         # Account summary as a separate sheet
         account_data = {
             'Account_ID': [portfolio.account_id],
-            'Total_Value_SGD': [summary['total_value_sgd']],
+            'Total_Value': [summary['total_value']],
             'Cash_Percentage': [summary['cash_percentage']],
             'Timestamp': [summary['timestamp']]
         }
         account_df = pd.DataFrame(account_data)
         
-        # Currency breakdown
-        currency_data = [
-            {'Currency': currency, 'Value_SGD': value}
-            for currency, value in summary['currency_breakdown_sgd'].items()
-        ]
-        currency_df = pd.DataFrame(currency_data)
-        
         # Write to Excel with multiple sheets
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
             positions_df.to_excel(writer, sheet_name='Positions', index=False)
             account_df.to_excel(writer, sheet_name='Account_Summary', index=False)
-            currency_df.to_excel(writer, sheet_name='Currency_Breakdown', index=False)
         
         return True
         

@@ -276,11 +276,13 @@ class PortfolioService:
             
             # Use the new ib_insync-based portfolio snapshot method
             # All monetary values are automatically in account base currency (SGD)
-            snapshot = PortfolioSnapshot.from_ib_connection(self.ib, account_id)
+            # Use the existing proven working method instead of from_ib_connection\n            # Get positions using the working logic\n            ib_positions = self.get_account_portfolio(account_id)\n            \n            # Convert to Position objects using the proven converter\n            positions = []\n            for ib_pos in ib_positions:\n                if ib_pos.position != 0:  # Skip zero positions\n                    position = self._convert_ib_position_to_position(ib_pos, account_id)\n                    positions.append(position)\n            \n            # Get account summary using the working logic\n            summary_dict = self.get_account_summary(account_id)\n            account_summary = self._convert_account_summary_dict_to_model(summary_dict, account_id)\n            \n            # Create snapshot using proven working components\n            snapshot = PortfolioSnapshot(\n                account_id=account_id,\n                positions=positions,\n                account_summary=account_summary,\n                timestamp=datetime.now()\n            )
             
+            active_positions = [p for p in snapshot.positions if p.position != 0]
+            total_value = snapshot.get_total_portfolio_value() or 0
             logger.info(f"Successfully downloaded portfolio for {account_id}: "
-                       f"{len(snapshot.get_active_positions())} active positions, "
-                       f"Total value: SGD {snapshot.get_total_portfolio_value():,.2f}")
+                       f"{len(active_positions)} active positions, "
+                       f"Total value: SGD {total_value:,.2f}")
             
             return snapshot
             
@@ -306,7 +308,7 @@ class PortfolioService:
             if account_ids is None:
                 # Use ib_insync's automatic account discovery
                 logger.info("Downloading all managed account portfolios using ib_insync")
-                multi_portfolio = MultiAccountPortfolio.from_ib_connection(self.ib)
+                # Use existing working method instead of from_ib_connection\n                accounts = self.get_all_accounts()\n                multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())\n                \n                # Download each account using the working method\n                for account_id in accounts:\n                    try:\n                        snapshot = self.download_account_portfolio(account_id)\n                        multi_portfolio.add_snapshot(snapshot)\n                        logger.info(f\"Successfully downloaded portfolio for account: {account_id}\")\n                    except Exception as e:\n                        logger.error(f\"Failed to download portfolio for account {account_id}: {e}\")\n                        # Continue with other accounts even if one fails\n                        continue
             else:
                 # Download specified accounts only
                 logger.info(f"Downloading portfolios for {len(account_ids)} specified accounts: {account_ids}")

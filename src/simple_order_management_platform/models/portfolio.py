@@ -56,14 +56,55 @@ class Position(BaseModel):
             currency=item.contract.currency,
             sec_type=item.contract.secType,
             position=Decimal(str(item.position)),
-            market_price=Decimal(str(item.marketPrice)) if item.marketPrice else None,
-            market_value=Decimal(str(item.marketValue)) if item.marketValue else None,
-            avg_cost=Decimal(str(item.averageCost)) if item.averageCost else None,
-            unrealized_pnl=Decimal(str(item.unrealizedPNL)) if item.unrealizedPNL else None,
-            realized_pnl=Decimal(str(item.realizedPNL)) if item.realizedPNL else None,
+            market_price=Decimal(str(item.marketPrice)) if hasattr(item, 'marketPrice') and item.marketPrice else None,
+            market_value=Decimal(str(item.marketValue)) if hasattr(item, 'marketValue') and item.marketValue else None,
+            avg_cost=Decimal(str(item.averageCost)) if hasattr(item, 'averageCost') and item.averageCost else None,
+            unrealized_pnl=Decimal(str(item.unrealizedPNL)) if hasattr(item, 'unrealizedPNL') and item.unrealizedPNL else None,
+            realized_pnl=Decimal(str(item.realizedPNL)) if hasattr(item, 'realizedPNL') and item.realizedPNL else None,
             local_symbol=getattr(item.contract, 'localSymbol', None),
             multiplier=getattr(item.contract, 'multiplier', None),
             last_trade_date=getattr(item.contract, 'lastTradeDateOrContractMonth', None),
+        )
+    
+    @classmethod
+    def from_ib_position(cls, pos, market_price: Optional[Decimal] = None) -> 'Position':
+        """Create Position from ib_insync Position object.
+        
+        Args:
+            pos: Position object from ib_insync
+            market_price: Current market price (optional)
+            
+        Returns:
+            Position with values in account base currency
+        """
+        # Calculate market value if we have market price
+        market_value = None
+        unrealized_pnl = None
+        
+        if market_price and pos.position:
+            market_value = Decimal(str(pos.position)) * market_price
+            
+            # Calculate unrealized PnL if we have avg cost
+            if pos.avgCost:
+                avg_cost = Decimal(str(pos.avgCost))
+                unrealized_pnl = (market_price - avg_cost) * Decimal(str(pos.position))
+        
+        return cls(
+            account_id=pos.account,
+            symbol=pos.contract.symbol,
+            contract_id=pos.contract.conId,
+            exchange=pos.contract.exchange or pos.contract.primaryExchange or 'SMART',
+            currency=pos.contract.currency,
+            sec_type=pos.contract.secType,
+            position=Decimal(str(pos.position)),
+            market_price=market_price,
+            market_value=market_value,
+            avg_cost=Decimal(str(pos.avgCost)) if pos.avgCost else None,
+            unrealized_pnl=unrealized_pnl,
+            realized_pnl=None,  # Not available in ib_insync Position object
+            local_symbol=getattr(pos.contract, 'localSymbol', None),
+            multiplier=getattr(pos.contract, 'multiplier', None),
+            last_trade_date=getattr(pos.contract, 'lastTradeDateOrContractMonth', None),
         )
 
 
@@ -235,38 +276,78 @@ class PortfolioSnapshot(BaseModel):
             PortfolioSnapshot with all values in account base currency (SGD)
         """
         try:
+            import asyncio
             from ib_insync import util
             
-            # Get portfolio items - these are already in account base currency
-            portfolio_items = ib.portfolio(account)
+            # Use ib.positions() to get all positions with account filter
+            all_positions = ib.positions()
             
-            # Get account values - these are already in account base currency  
+            # Filter positions by account if specified
+            if account:
+                account_positions = [pos for pos in all_positions if pos.account == account]
+            else:
+                # If no account specified, get all positions
+                account_positions = all_positions
+            
+            # Get account values for the specific account
             account_values = ib.accountValues(account)
             
-            # Create positions from portfolio items
+            # Create Position objects and get market data
             positions = []
-            for item in portfolio_items:
-                if item.position == 0:
+            contracts_to_price = []
+            
+            for pos in account_positions:
+                if pos.position == 0:
                     continue  # Skip zero positions
-                    
+                
+                # Add contract for market data request
+                contracts_to_price.append(pos.contract)
+                
+                # Create basic position (market price will be added later)
                 position = Position(
-                    account_id=item.account,
-                    symbol=item.contract.symbol,
-                    contract_id=item.contract.conId,
-                    exchange=item.contract.exchange or item.contract.primaryExchange or 'SMART',
-                    currency=item.contract.currency,
-                    sec_type=item.contract.secType,
-                    position=Decimal(str(item.position)),
-                    market_price=Decimal(str(item.marketPrice)) if item.marketPrice else None,
-                    market_value=Decimal(str(item.marketValue)) if item.marketValue else None,
-                    avg_cost=Decimal(str(item.averageCost)) if item.averageCost else None,
-                    unrealized_pnl=Decimal(str(item.unrealizedPNL)) if item.unrealizedPNL else None,
-                    realized_pnl=Decimal(str(item.realizedPNL)) if item.realizedPNL else None,
-                    local_symbol=getattr(item.contract, 'localSymbol', None),
-                    multiplier=getattr(item.contract, 'multiplier', None),
-                    last_trade_date=getattr(item.contract, 'lastTradeDateOrContractMonth', None),
+                    account_id=pos.account,
+                    symbol=pos.contract.symbol,
+                    contract_id=pos.contract.conId,
+                    exchange=pos.contract.exchange or pos.contract.primaryExchange or 'SMART',
+                    currency=pos.contract.currency,
+                    sec_type=pos.contract.secType,
+                    position=Decimal(str(pos.position)),
+                    market_price=None,  # Will be filled later
+                    market_value=None,  # Will be calculated later
+                    avg_cost=Decimal(str(pos.avgCost)) if pos.avgCost else None,
+                    unrealized_pnl=None,  # Will be calculated later
+                    realized_pnl=None,
+                    local_symbol=getattr(pos.contract, 'localSymbol', None),
+                    multiplier=getattr(pos.contract, 'multiplier', None),
+                    last_trade_date=getattr(pos.contract, 'lastTradeDateOrContractMonth', None),
                 )
                 positions.append(position)
+            
+            # Get market data for all contracts
+            if contracts_to_price:
+                try:
+                    # Request market data for all contracts
+                    tickers = ib.reqTickers(*contracts_to_price)
+                    
+                    # Update positions with market prices
+                    for i, ticker in enumerate(tickers):
+                        if i < len(positions) and ticker.marketPrice():
+                            market_price = Decimal(str(ticker.marketPrice()))
+                            positions[i].market_price = market_price
+                            
+                            # Calculate market value in base currency (SGD)
+                            if positions[i].position and market_price:
+                                market_value = positions[i].position * market_price
+                                positions[i].market_value = market_value
+                                
+                                # Calculate unrealized PnL if we have avg cost
+                                if positions[i].avg_cost:
+                                    unrealized_pnl = (market_price - positions[i].avg_cost) * positions[i].position
+                                    positions[i].unrealized_pnl = unrealized_pnl
+                                    
+                except Exception as e:
+                    print(f"Warning: Could not get market data for account {account}: {e}")
+                    # Continue without market prices - positions will show avg cost only
             
             # Create account summary from account values
             account_summary = AccountSummary.from_ib_account_values(account_values, account or 'Default')

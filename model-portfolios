@@ -1,0 +1,4 @@
+#!/bin/bash
+# Model Portfolio Management Wrapper Script
+
+python3 -m simple_order_management_platform.cli list-model-portfolios

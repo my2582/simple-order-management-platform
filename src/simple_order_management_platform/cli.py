@@ -27,10 +27,10 @@ from .utils.exporters import export_multi_asset_results, export_portfolio_snapsh
 from .utils.ibkr_exporters import export_ibkr_portfolio_report
 from .utils.exceptions import SimpleOrderManagementPlatformError, ConnectionError
 from .services.portfolio_service import PortfolioService
-from .services.order_service import OrderService
+# from .services.order_service import OrderService  # Legacy, not used in model portfolio system
 from .services.automation_service import automated_portfolio_service
 from .services.market_data_service import market_data_service
-from .models.model_portfolio import ModelPortfolioManager
+# Model portfolio imports are done within functions to avoid circular imports
 
 app = typer.Typer(
     name="simple-order",
@@ -1542,6 +1542,311 @@ def test_integrations():
     except Exception as e:
         console.print(f"[red]❌ Integration test error: {e}[/red]")
         logger.exception("Unexpected error during integration tests")
+        raise typer.Exit(1)
+
+
+# =====================================
+# MODEL PORTFOLIO MANAGEMENT COMMANDS
+# =====================================
+
+@app.command(name="list-model-portfolios")
+def list_model_portfolios():
+    """📊 List all available model portfolios."""
+    try:
+        from .services.model_portfolio_service import ModelPortfolioService
+        
+        console.print("📊 [bold blue]Listing Model Portfolios[/bold blue]")
+        
+        mp_service = ModelPortfolioService()
+        portfolios = mp_service.list_model_portfolios()
+        
+        if not portfolios:
+            console.print("❌ No model portfolios found")
+            return
+        
+        table = Table(title="Available Model Portfolios")
+        table.add_column("Name", style="cyan")
+        table.add_column("Description", style="white")
+        table.add_column("Holdings", style="green")
+        
+        for mp_name in portfolios:
+            mp = mp_service.get_model_portfolio(mp_name)
+            if mp:
+                holdings_str = ", ".join([f"{h.symbol} ({h.target_weight:.2%})" for h in mp.holdings])
+                table.add_row(mp.name, mp.description or "N/A", holdings_str)
+        
+        console.print(table)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error listing model portfolios: {e}[/red]")
+        logger.exception("Error listing model portfolios")
+        raise typer.Exit(1)
+
+
+@app.command(name="show-model-portfolio")
+def show_model_portfolio(
+    name: str = typer.Argument(..., help="Model portfolio name")
+):
+    """📋 Show detailed information about a model portfolio."""
+    try:
+        from .services.model_portfolio_service import ModelPortfolioService
+        
+        console.print(f"📋 [bold blue]Model Portfolio: {name}[/bold blue]")
+        
+        mp_service = ModelPortfolioService()
+        mp = mp_service.get_model_portfolio(name)
+        
+        if not mp:
+            console.print(f"❌ Model portfolio '{name}' not found")
+            return
+        
+        # Portfolio info
+        console.print(f"\n[bold]Name:[/bold] {mp.name}")
+        console.print(f"[bold]Description:[/bold] {mp.description or 'N/A'}")
+        console.print(f"[bold]Created:[/bold] {mp.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        console.print(f"[bold]Updated:[/bold] {mp.updated_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Holdings table
+        table = Table(title="Portfolio Holdings")
+        table.add_column("Symbol", style="cyan")
+        table.add_column("Target Weight", style="green", justify="right")
+        table.add_column("Security Type", style="white")
+        table.add_column("Exchange", style="white")
+        table.add_column("Currency", style="yellow")
+        
+        total_weight = Decimal('0')
+        for holding in mp.holdings:
+            table.add_row(
+                holding.symbol,
+                f"{holding.target_weight:.4f} ({holding.target_weight:.2%})",
+                holding.security_type,
+                holding.exchange,
+                holding.currency
+            )
+            total_weight += holding.target_weight
+        
+        table.add_row(
+            "[bold]TOTAL[/bold]",
+            f"[bold]{total_weight:.4f} ({total_weight:.2%})[/bold]",
+            "", "", ""
+        )
+        
+        console.print(table)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error showing model portfolio: {e}[/red]")
+        logger.exception("Error showing model portfolio")
+        raise typer.Exit(1)
+
+
+@app.command(name="assign-account")
+def assign_account_to_model_portfolio(
+    account_id: str = typer.Argument(..., help="Account ID"),
+    model_portfolio: str = typer.Argument(..., help="Model portfolio name")
+):
+    """🔗 Assign an account to a model portfolio."""
+    try:
+        from .services.model_portfolio_service import ModelPortfolioService
+        
+        console.print(f"🔗 [bold blue]Assigning Account to Model Portfolio[/bold blue]")
+        
+        mp_service = ModelPortfolioService()
+        mp_service.assign_account_to_model_portfolio(account_id, model_portfolio)
+        
+        console.print(f"✅ Successfully assigned account '{account_id}' to model portfolio '{model_portfolio}'")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error assigning account: {e}[/red]")
+        logger.exception("Error assigning account to model portfolio")
+        raise typer.Exit(1)
+
+
+@app.command(name="calculate-rebalancing")
+def calculate_rebalancing(
+    accounts: Optional[List[str]] = typer.Option(None, "--accounts", "-a", help="Specific accounts to analyze"),
+    model_portfolio: Optional[str] = typer.Option(None, "--model-portfolio", "-m", help="Model portfolio name"),
+    host: Optional[str] = typer.Option(None, "--host", help="IB Gateway host"),
+    port: Optional[int] = typer.Option(None, "--port", help="IB Gateway port"),
+    client_id: Optional[int] = typer.Option(None, "--client-id", help="IB client ID")
+):
+    """⚖️ Calculate rebalancing requirements for accounts."""
+    try:
+        from .services.model_portfolio_service import ModelPortfolioService
+        
+        console.print("⚖️ [bold blue]Calculating Rebalancing Requirements[/bold blue]")
+        
+        # Load configuration
+        app_config = config_loader.get_config("app")
+        host, port, client_id, alternative_ports = get_ib_connection_params(app_config, host, port, client_id)
+        
+        # Get current portfolio data
+        with IBConnector(host=host, port=port, client_id=client_id, alternative_ports=alternative_ports) as connector:
+            provider = IBProvider(connector)
+            portfolio_service = PortfolioService(provider)
+            
+            if accounts:
+                account_list = accounts
+            else:
+                account_list = portfolio_service.get_all_accounts()
+            
+            multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+        
+        # Calculate rebalancing
+        mp_service = ModelPortfolioService()
+        calculations = mp_service.calculate_multi_account_rebalancing(multi_portfolio, model_portfolio)
+        
+        if not calculations:
+            console.print("❌ No rebalancing calculations generated")
+            return
+        
+        # Display results
+        for calc in calculations:
+            console.print(f"\n[bold cyan]Account: {calc.account_id}[/bold cyan]")
+            console.print(f"Model Portfolio: {calc.model_portfolio_name}")
+            console.print(f"Total Value: ${calc.total_portfolio_value:,.2f}")
+            
+            # Rebalancing table
+            table = Table(title=f"Rebalancing Analysis - {calc.account_id}")
+            table.add_column("Symbol", style="cyan")
+            table.add_column("Current Weight", style="white", justify="right")
+            table.add_column("Target Weight", style="green", justify="right")
+            table.add_column("Difference", style="yellow", justify="right")
+            table.add_column("Current Shares", style="white", justify="right")
+            table.add_column("Required Action", style="red", justify="right")
+            
+            for symbol in calc.target_weights.keys():
+                current_weight = calc.current_weights.get(symbol, Decimal('0'))
+                target_weight = calc.target_weights[symbol]
+                weight_diff = calc.weight_differences[symbol]
+                current_shares = calc.current_positions.get(symbol, Decimal('0'))
+                shares_action = calc.orders_required.get(symbol, Decimal('0'))
+                
+                # Color code the difference
+                if abs(weight_diff) > Decimal('0.01'):  # > 1%
+                    diff_color = "red" if weight_diff < 0 else "green"
+                    diff_str = f"[{diff_color}]{weight_diff:+.2%}[/{diff_color}]"
+                else:
+                    diff_str = f"{weight_diff:+.2%}"
+                
+                action_str = f"{shares_action:+.2f}" if shares_action != 0 else "No action"
+                
+                table.add_row(
+                    symbol,
+                    f"{current_weight:.2%}",
+                    f"{target_weight:.2%}",
+                    diff_str,
+                    f"{current_shares:.2f}",
+                    action_str
+                )
+            
+            console.print(table)
+            
+            if calc.needs_rebalancing():
+                console.print("📈 [yellow]Rebalancing recommended[/yellow]")
+            else:
+                console.print("✅ [green]Portfolio is balanced[/green]")
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error calculating rebalancing: {e}[/red]")
+        logger.exception("Error calculating rebalancing")
+        raise typer.Exit(1)
+
+
+@app.command(name="generate-orders")
+def generate_rebalancing_orders(
+    output_file: str = typer.Argument(..., help="Output CSV file path"),
+    accounts: Optional[List[str]] = typer.Option(None, "--accounts", "-a", help="Specific accounts to rebalance"),
+    model_portfolio: Optional[str] = typer.Option(None, "--model-portfolio", "-m", help="Model portfolio name"),
+    day: Optional[int] = typer.Option(None, "--day", help="Generate orders for specific day (1 or 2)"),
+    host: Optional[str] = typer.Option(None, "--host", help="IB Gateway host"),
+    port: Optional[int] = typer.Option(None, "--port", help="IB Gateway port"),
+    client_id: Optional[int] = typer.Option(None, "--client-id", help="IB client ID")
+):
+    """📋 Generate rebalancing orders and export to IBKR CSV format."""
+    try:
+        from .services.model_portfolio_service import ModelPortfolioService
+        
+        console.print("📋 [bold blue]Generating Rebalancing Orders[/bold blue]")
+        
+        # Load configuration
+        app_config = config_loader.get_config("app")
+        host, port, client_id, alternative_ports = get_ib_connection_params(app_config, host, port, client_id)
+        
+        # Get current portfolio data
+        with IBConnector(host=host, port=port, client_id=client_id, alternative_ports=alternative_ports) as connector:
+            provider = IBProvider(connector)
+            portfolio_service = PortfolioService(provider)
+            
+            if accounts:
+                account_list = accounts
+            else:
+                account_list = portfolio_service.get_all_accounts()
+            
+            multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+        
+        # Calculate rebalancing and generate orders
+        mp_service = ModelPortfolioService()
+        calculations = mp_service.calculate_multi_account_rebalancing(multi_portfolio, model_portfolio)
+        
+        if not calculations:
+            console.print("❌ No rebalancing calculations generated")
+            return
+        
+        # Generate rebalancing plan
+        rebalance_plan = mp_service.generate_rebalance_plan(calculations)
+        
+        # Export orders
+        mp_service.export_orders_to_ibkr_csv(rebalance_plan, output_file, day)
+        
+        # Display summary
+        console.print(f"\n[bold green]✅ Orders Generated Successfully[/bold green]")
+        console.print(f"Output file: {output_file}")
+        console.print(f"Model Portfolio: {rebalance_plan.model_portfolio_name}")
+        console.print(f"Execution Date: {rebalance_plan.execution_date.strftime('%Y-%m-%d')}")
+        console.print(f"Basket Tag: {rebalance_plan.basket_tag}")
+        
+        if day == 1:
+            console.print(f"Day 1 Orders: {len(rebalance_plan.day_1_orders)}")
+        elif day == 2:
+            console.print(f"Day 2 Orders: {len(rebalance_plan.day_2_orders)}")
+        else:
+            console.print(f"Day 1 Orders: {len(rebalance_plan.day_1_orders)}")
+            console.print(f"Day 2 Orders: {len(rebalance_plan.day_2_orders)}")
+            console.print(f"Total Orders: {len(rebalance_plan.get_all_orders())}")
+        
+        # Show order summary table
+        orders_to_show = []
+        if day == 1:
+            orders_to_show = rebalance_plan.day_1_orders
+        elif day == 2:
+            orders_to_show = rebalance_plan.day_2_orders
+        else:
+            orders_to_show = rebalance_plan.get_all_orders()
+        
+        if orders_to_show:
+            table = Table(title="Generated Orders")
+            table.add_column("Account", style="cyan")
+            table.add_column("Symbol", style="white")
+            table.add_column("Action", style="green")
+            table.add_column("Quantity", style="yellow", justify="right")
+            table.add_column("Order Type", style="white")
+            table.add_column("Day", style="blue")
+            
+            for order in orders_to_show:
+                table.add_row(
+                    order.account_id,
+                    order.symbol,
+                    order.action.value,
+                    f"{order.quantity:.6f}".rstrip('0').rstrip('.'),
+                    order.order_type.value,
+                    str(order.rebalance_day)
+                )
+            
+            console.print(table)
+        
+    except Exception as e:
+        console.print(f"[red]❌ Error generating orders: {e}[/red]")
+        logger.exception("Error generating rebalancing orders")
         raise typer.Exit(1)
 
 

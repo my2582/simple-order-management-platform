@@ -308,7 +308,17 @@ class PortfolioService:
             if account_ids is None:
                 # Use ib_insync's automatic account discovery
                 logger.info("Downloading all managed account portfolios using ib_insync")
-                # Use existing working method instead of from_ib_connection\n                accounts = self.get_all_accounts()\n                multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())\n                \n                # Download each account using the working method\n                for account_id in accounts:\n                    try:\n                        snapshot = self.download_account_portfolio(account_id)\n                        multi_portfolio.add_snapshot(snapshot)\n                        logger.info(f\"Successfully downloaded portfolio for account: {account_id}\")\n                    except Exception as e:\n                        logger.error(f\"Failed to download portfolio for account {account_id}: {e}\")\n                        # Continue with other accounts even if one fails\n                        continue
+                accounts = self.get_all_accounts()
+                multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())
+                
+                for account_id in accounts:
+                    try:
+                        snapshot = self.download_account_portfolio(account_id)
+                        multi_portfolio.add_snapshot(snapshot)
+                        logger.info(f"Successfully downloaded portfolio for account: {account_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to download portfolio for account {account_id}: {e}")
+                        continue
             else:
                 # Download specified accounts only
                 logger.info(f"Downloading portfolios for {len(account_ids)} specified accounts: {account_ids}")

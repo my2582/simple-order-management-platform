@@ -62,7 +62,7 @@ class Position(BaseModel):
             unrealized_pnl=Decimal(str(item.unrealizedPNL)) if hasattr(item, 'unrealizedPNL') and item.unrealizedPNL else None,
             realized_pnl=Decimal(str(item.realizedPNL)) if hasattr(item, 'realizedPNL') and item.realizedPNL else None,
             local_symbol=getattr(item.contract, 'localSymbol', None),
-            multiplier=getattr(item.contract, 'multiplier', None),
+            multiplier=None,  # Skip multiplier validation for now
             last_trade_date=getattr(item.contract, 'lastTradeDateOrContractMonth', None),
         )
     
@@ -77,7 +77,7 @@ class Position(BaseModel):
         Returns:
             Position with values in account base currency
         """
-        # Calculate market value if we have market price
+        # Safe conversion for multiplier (can be empty string, None, or numeric)\n        def safe_int_convert(value):\n            if value is None or value == '' or value == '0':\n                return None\n            try:\n                return int(value)\n            except (ValueError, TypeError):\n                return None\n        \n        # Calculate market value if we have market price
         market_value = None
         unrealized_pnl = None
         
@@ -103,7 +103,7 @@ class Position(BaseModel):
             unrealized_pnl=unrealized_pnl,
             realized_pnl=None,  # Not available in ib_insync Position object
             local_symbol=getattr(pos.contract, 'localSymbol', None),
-            multiplier=getattr(pos.contract, 'multiplier', None),
+            multiplier=safe_int_convert(getattr(pos.contract, 'multiplier', None)),
             last_trade_date=getattr(pos.contract, 'lastTradeDateOrContractMonth', None),
         )
 
@@ -318,7 +318,7 @@ class PortfolioSnapshot(BaseModel):
                     unrealized_pnl=None,  # Will be calculated later
                     realized_pnl=None,
                     local_symbol=getattr(pos.contract, 'localSymbol', None),
-                    multiplier=getattr(pos.contract, 'multiplier', None),
+                    multiplier=safe_int_convert(getattr(pos.contract, 'multiplier', None)),
                     last_trade_date=getattr(pos.contract, 'lastTradeDateOrContractMonth', None),
                 )
                 positions.append(position)

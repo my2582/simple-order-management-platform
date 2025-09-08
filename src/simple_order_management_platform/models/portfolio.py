@@ -193,6 +193,80 @@ class MultiAccountPortfolio(BaseModel):
             'total_accounts': len(self.snapshots),
             'total_portfolio_value': float(total_value),
             'total_positions': total_positions,
+            'currency_breakdown_sgd': {k: float(v) for k, v in self.get_combined_currency_breakdown().items()},
             'timestamp': self.timestamp.isoformat(),
             'account_ids': self.get_account_ids(),
         }
+
+
+# Utility functions for easy integration
+
+def get_portfolio_snapshot(ib, account: str = '') -> PortfolioSnapshot:
+    """
+    Quick function to get portfolio snapshot from ib_insync connection.
+    All values automatically in account base currency (SGD).
+    
+    Args:
+        ib: Connected ib_insync IB instance
+        account: Account ID (empty for single account)
+    """
+    return PortfolioSnapshot.from_ib_connection(ib, account)
+
+
+def get_all_portfolios(ib) -> MultiAccountPortfolio:
+    """
+    Quick function to get all managed account portfolios.
+    All values automatically in respective account base currencies.
+    
+    Args:
+        ib: Connected ib_insync IB instance
+    """
+    return MultiAccountPortfolio.from_ib_connection(ib)
+
+
+def export_portfolio_to_excel(portfolio: PortfolioSnapshot, filename: str) -> bool:
+    """
+    Export portfolio to Excel file.
+    
+    Args:
+        portfolio: Portfolio snapshot to export
+        filename: Output Excel filename
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import pandas as pd
+        
+        summary = portfolio.get_positions_summary()
+        
+        # Create DataFrames
+        positions_df = pd.DataFrame(summary['positions'])
+        
+        # Account summary as a separate sheet
+        account_data = {
+            'Account_ID': [portfolio.account_id],
+            'Total_Value_SGD': [summary['total_value_sgd']],
+            'Cash_Percentage': [summary['cash_percentage']],
+            'Timestamp': [summary['timestamp']]
+        }
+        account_df = pd.DataFrame(account_data)
+        
+        # Currency breakdown
+        currency_data = [
+            {'Currency': currency, 'Value_SGD': value}
+            for currency, value in summary['currency_breakdown_sgd'].items()
+        ]
+        currency_df = pd.DataFrame(currency_data)
+        
+        # Write to Excel with multiple sheets
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            positions_df.to_excel(writer, sheet_name='Positions', index=False)
+            account_df.to_excel(writer, sheet_name='Account_Summary', index=False)
+            currency_df.to_excel(writer, sheet_name='Currency_Breakdown', index=False)
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error exporting to Excel: {e}")
+        return False

@@ -149,6 +149,7 @@ class PortfolioService:
             
             # Position objects have marketPrice and marketValue (unlike Portfolio objects)
             # This is why the original method worked better!
+            # Note: All values here are already in the account's base currency (SGD)
             
             market_price = None
             market_value = None
@@ -274,12 +275,35 @@ class PortfolioService:
         try:
             logger.info(f"Downloading portfolio snapshot for account: {account_id} using ib_insync")
             
-            # Use the new ib_insync-based portfolio snapshot method
-            # All monetary values are automatically in account base currency (SGD)
-            # Use the existing proven working method instead of from_ib_connection\n            # Get positions using the working logic\n            ib_positions = self.get_account_portfolio(account_id)\n            \n            # Convert to Position objects using the proven converter\n            positions = []\n            for ib_pos in ib_positions:\n                if ib_pos.position != 0:  # Skip zero positions\n                    position = self._convert_ib_position_to_position(ib_pos, account_id)\n                    positions.append(position)\n            \n            # Get account summary using the working logic\n            summary_dict = self.get_account_summary(account_id)\n            account_summary = self._convert_account_summary_dict_to_model(summary_dict, account_id)\n            \n            # Create snapshot using proven working components\n            snapshot = PortfolioSnapshot(\n                account_id=account_id,\n                positions=positions,\n                account_summary=account_summary,\n                timestamp=datetime.now()\n            )
+            # Get portfolio positions for this account
+            ib_positions = self.get_account_portfolio(account_id)
             
-            active_positions = [p for p in snapshot.positions if p.position != 0]
-            total_value = snapshot.get_total_portfolio_value() or 0
+            # Convert IB positions to Position models
+            positions = []
+            for ib_pos in ib_positions:
+                try:
+                    position = self._convert_ib_position_to_position(ib_pos, account_id)
+                    positions.append(position)
+                    logger.debug(f"Converted position: {position.symbol} = {position.market_value}")
+                except Exception as e:
+                    logger.warning(f"Failed to convert position for {ib_pos}: {e}")
+                    continue
+            
+            # Get account summary
+            summary_dict = self.get_account_summary(account_id)
+            account_summary = self._convert_account_summary_dict_to_model(summary_dict, account_id)
+            
+            # Create portfolio snapshot
+            snapshot = PortfolioSnapshot(
+                account_id=account_id,
+                positions=positions,
+                account_summary=account_summary,
+                timestamp=datetime.now()
+            )
+            
+            active_positions = [p for p in positions if p.position != 0]
+            total_value = snapshot.get_total_portfolio_value() or Decimal(0)
+            
             logger.info(f"Successfully downloaded portfolio for {account_id}: "
                        f"{len(active_positions)} active positions, "
                        f"Total value: SGD {total_value:,.2f}")
@@ -305,37 +329,31 @@ class PortfolioService:
             SimpleOrderManagementPlatformError: If download fails
         """
         try:
-            if account_ids is None:
-                # Use ib_insync's automatic account discovery
-                logger.info("Downloading all managed account portfolios using ib_insync")
-                accounts = self.get_all_accounts()
-                multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())
-                
-                for account_id in accounts:
-                    try:
-                        snapshot = self.download_account_portfolio(account_id)
-                        multi_portfolio.add_snapshot(snapshot)
-                        logger.info(f"Successfully downloaded portfolio for account: {account_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to download portfolio for account {account_id}: {e}")
-                        continue
-            else:
-                # Download specified accounts only
-                logger.info(f"Downloading portfolios for {len(account_ids)} specified accounts: {account_ids}")
-                multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())
-                
-                # Download each account's portfolio
-                for account_id in account_ids:
-                    try:
-                        snapshot = self.download_account_portfolio(account_id)
-                        multi_portfolio.add_snapshot(snapshot)
-                        logger.info(f"Successfully downloaded portfolio for account: {account_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to download portfolio for account {account_id}: {e}")
-                        # Continue with other accounts even if one fails
-                        continue
+            # Create multi-portfolio container
+            multi_portfolio = MultiAccountPortfolio(timestamp=datetime.now())
             
-            if not multi_portfolio.snapshots:
+            # Determine which accounts to download
+            if account_ids is None:
+                logger.info("Downloading all managed account portfolios using ib_insync")
+                account_ids = self.get_all_accounts()
+            else:
+                logger.info(f"Downloading portfolios for {len(account_ids)} specified accounts: {account_ids}")
+            
+            # Download each account's portfolio
+            successful_downloads = 0
+            for account_id in account_ids:
+                try:
+                    logger.info(f"Downloading portfolio for account: {account_id}")
+                    snapshot = self.download_account_portfolio(account_id)
+                    multi_portfolio.add_snapshot(snapshot)
+                    successful_downloads += 1
+                    logger.info(f"Successfully downloaded portfolio for account: {account_id}")
+                except Exception as e:
+                    logger.error(f"Failed to download portfolio for account {account_id}: {e}")
+                    # Continue with other accounts even if one fails
+                    continue
+            
+            if successful_downloads == 0:
                 raise SimpleOrderManagementPlatformError("No portfolios were successfully downloaded")
             
             combined_summary = multi_portfolio.get_combined_summary()

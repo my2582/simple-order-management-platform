@@ -264,94 +264,9 @@ class PortfolioSnapshot(BaseModel):
             'timestamp': self.timestamp.isoformat(),
         }
     
-    @classmethod
-    def from_ib_connection(cls, ib, account: str = '') -> 'PortfolioSnapshot':
-        """Create portfolio snapshot directly from ib_insync connection.
-        
-        Args:
-            ib: Connected ib_insync IB instance
-            account: Account ID (empty string for single account)
-            
-        Returns:
-            PortfolioSnapshot with all values in account base currency (SGD)
-        """
-        try:
-            import asyncio
-            from ib_insync import util
-            
-            # Use ib.positions() to get all positions with account filter
-            all_positions = ib.positions()
-            
-            # Filter positions by account if specified
-            if account:
-                account_positions = [pos for pos in all_positions if pos.account == account]
-            else:
-                # If no account specified, get all positions
-                account_positions = all_positions
-            
-            # Get account values for the specific account
-            account_values = ib.accountValues(account)
-            
-            # Create Position objects and get market data
-            positions = []
-            contracts_to_price = []
-            
-            for pos in account_positions:
-                if pos.position == 0:
-                    continue  # Skip zero positions
-                
-                # Add contract for market data request
-                contracts_to_price.append(pos.contract)
-                
-                # Create basic position using from_ib_position method (market price will be added later)
-                position = Position.from_ib_position(pos, None)  # No market price initially
-                positions.append(position)
-            
-            # Get market data for all contracts
-            if contracts_to_price:
-                try:
-                    # Request market data for all contracts
-                    tickers = ib.reqTickers(*contracts_to_price)
-                    
-                    # Update positions with market prices
-                    for i, ticker in enumerate(tickers):
-                        if i < len(positions) and ticker.marketPrice():
-                            market_price = Decimal(str(ticker.marketPrice()))
-                            positions[i].market_price = market_price
-                            
-                            # Calculate market value in base currency (SGD)
-                            if positions[i].position and market_price:
-                                market_value = positions[i].position * market_price
-                                positions[i].market_value = market_value
-                                
-                                # Calculate unrealized PnL if we have avg cost
-                                if positions[i].avg_cost:
-                                    unrealized_pnl = (market_price - positions[i].avg_cost) * positions[i].position
-                                    positions[i].unrealized_pnl = unrealized_pnl
-                                    
-                except Exception as e:
-                    print(f"Warning: Could not get market data for account {account}: {e}")
-                    # Continue without market prices - positions will show avg cost only
-            
-            # Create account summary from account values
-            account_summary = AccountSummary.from_ib_account_values(account_values, account or 'Default')
-            
-            return cls(
-                account_id=account or 'Default',
-                positions=positions,
-                account_summary=account_summary,
-                timestamp=datetime.now()
-            )
-            
-        except Exception as e:
-            # Fallback to empty portfolio if there's an error
-            print(f"Warning: Error creating portfolio snapshot for account {account}: {e}")
-            return cls(
-                account_id=account or 'Default',
-                positions=[],
-                account_summary=None,
-                timestamp=datetime.now()
-            )
+    def get_active_positions(self) -> List[Position]:
+        """Get positions with non-zero quantities."""
+        return [pos for pos in self.positions if pos.position != 0]
 
 
 class MultiAccountPortfolio(BaseModel):
@@ -399,66 +314,12 @@ class MultiAccountPortfolio(BaseModel):
             'account_ids': self.get_account_ids(),
         }
     
-    @classmethod
-    def from_ib_connection(cls, ib) -> 'MultiAccountPortfolio':
-        """Create multi-account portfolio from ib_insync connection.
-        
-        Args:
-            ib: Connected ib_insync IB instance
-            
-        Returns:
-            MultiAccountPortfolio with snapshots for all managed accounts
-        """
-        try:
-            # Get all managed accounts
-            managed_accounts = ib.managedAccounts()
-            
-            # Create portfolio snapshots for each account
-            snapshots = []
-            for account in managed_accounts:
-                try:
-                    snapshot = PortfolioSnapshot.from_ib_connection(ib, account)
-                    snapshots.append(snapshot)
-                except Exception as e:
-                    print(f"Warning: Failed to get portfolio for account {account}: {e}")
-                    continue
-            
-            return cls(
-                snapshots=snapshots,
-                timestamp=datetime.now()
-            )
-            
-        except Exception as e:
-            print(f"Error creating multi-account portfolio: {e}")
-            return cls(
-                snapshots=[],
-                timestamp=datetime.now()
-            )
+
 
 
 # Utility functions for easy integration
-
-def get_portfolio_snapshot(ib, account: str = '') -> PortfolioSnapshot:
-    """
-    Quick function to get portfolio snapshot from ib_insync connection.
-    All values automatically in account base currency (SGD).
-    
-    Args:
-        ib: Connected ib_insync IB instance
-        account: Account ID (empty for single account)
-    """
-    return PortfolioSnapshot.from_ib_connection(ib, account)
-
-
-def get_all_portfolios(ib) -> MultiAccountPortfolio:
-    """
-    Quick function to get all managed account portfolios.
-    All values automatically in respective account base currencies.
-    
-    Args:
-        ib: Connected ib_insync IB instance
-    """
-    return MultiAccountPortfolio.from_ib_connection(ib)
+# Note: These functions require a PortfolioService instance to work properly
+# They are placeholders for future implementation if needed
 
 
 def export_portfolio_to_excel(portfolio: PortfolioSnapshot, filename: str) -> bool:

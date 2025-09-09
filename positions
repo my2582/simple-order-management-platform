@@ -2,5 +2,10 @@
 # Simple wrapper for downloading positions
 # Usage: ./positions [OPTIONS]
 
-cd "$(dirname "$0")" || exit 1
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Add the src directory to PYTHONPATH and execute
+export PYTHONPATH="${SCRIPT_DIR}/src:${PYTHONPATH}"
+cd "${SCRIPT_DIR}" || exit 1
 exec python3 -m simple_order_management_platform.cli download-positions-ibkr "$@"

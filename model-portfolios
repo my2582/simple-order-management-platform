@@ -1,4 +1,10 @@
 #!/bin/bash
 # Model Portfolio Management Wrapper Script
 
-python3 -m simple_order_management_platform.cli list-model-portfolios
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Add the src directory to PYTHONPATH and execute
+export PYTHONPATH="${SCRIPT_DIR}/src:${PYTHONPATH}"
+cd "${SCRIPT_DIR}" || exit 1
+exec python3 -m simple_order_management_platform.cli list-model-portfolios

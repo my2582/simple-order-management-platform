@@ -8,8 +8,8 @@ app:
     data_dir: "./data"
     output_dir: "./data/output"
     universes_dir: "./config/universes"
-    sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading"
-    project_sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading/simple-order-management-platform"
+    sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading"
+    project_sharepoint_dir: "/Users/msyeom/Library/CloudStorage/OneDrive-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading/simple-order-management-platform"
     # Local storage mode (safer for testing)
     local_root: "/Users/msyeom/arki"
     local_output_dir: "/Users/msyeom/arki/portfolio-reports"

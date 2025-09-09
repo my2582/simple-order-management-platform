@@ -292,12 +292,12 @@ def create_sharepoint_integration() -> SharePointIntegration:
     
     sharepoint_root = directories.get(
         'sharepoint_dir', 
-        '/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading'
+        '/Users/msyeom/Library/CloudStorage/OneDrive-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading'
     )
     
     project_sharepoint_dir = directories.get(
         'project_sharepoint_dir',
-        '/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading/simple-order-management-platform'
+        '/Users/msyeom/Library/CloudStorage/OneDrive-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading/simple-order-management-platform'
     )
     
     return SharePointIntegration(sharepoint_root, project_sharepoint_dir)

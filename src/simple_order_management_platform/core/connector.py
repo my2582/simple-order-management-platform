@@ -13,12 +13,13 @@ logger = logging.getLogger(__name__)
 class IBConnector:
     """IB API connection manager"""
     
-    def __init__(self, host: str, port: int, client_id: int, timeout: int = 10, alternative_ports: Optional[list] = None):
+    def __init__(self, host: str, port: int, client_id: int, timeout: int = 30, alternative_ports: Optional[list] = None):
+        # Create IB instance with optimized settings
         self.ib = IB()
         self.host = host
         self.port = port
         self.client_id = client_id
-        self.timeout = timeout
+        self.timeout = timeout  # Increased default timeout
         self.alternative_ports = alternative_ports or []
         self.connected = False
         self.actual_port = None  # Store the port that actually worked
@@ -36,11 +37,13 @@ class IBConnector:
             try:
                 logger.info(f"Attempting connection to {self.host}:{port} (Client ID: {self.client_id})")
                 
+                # Connect with extended timeout for Read-Only mode
                 self.ib.connect(
                     self.host,
                     port,
                     clientId=self.client_id,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    readonly=True  # Explicitly set read-only mode
                 )
                 
                 self.connected = True

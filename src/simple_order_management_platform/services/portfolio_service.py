@@ -67,19 +67,31 @@ class PortfolioService:
         try:
             logger.info(f"Requesting portfolio for account: {account_id}")
             
-            # REVERT TO ORIGINAL WORKING METHOD: Use positions() as it actually works
-            # IB Gateway Read-Only setting provides the safety we need
-            logger.debug(f"Using positions() method (original working approach)")
+            # Use positions() method with timeout protection
+            logger.debug(f"Using positions() method with optimized settings")
             
-            # Get all positions and filter by account (ORIGINAL METHOD THAT WORKED)
-            all_positions = self.ib.positions()
-            account_positions = [pos for pos in all_positions if pos.account == account_id]
-            
-            # Wait for data to be received
-            self.ib.sleep(1)
-            
-            logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
-            return account_positions
+            # Request positions with explicit account filtering to minimize data transfer
+            try:
+                # Get all positions (this is the most reliable method)
+                all_positions = self.ib.positions()
+                
+                # Filter by account immediately to reduce processing
+                account_positions = [pos for pos in all_positions if pos.account == account_id]
+                
+                # Minimal wait time to ensure data is received
+                self.ib.sleep(0.5)
+                
+                logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
+                return account_positions
+                
+            except Exception as pos_error:
+                logger.warning(f"Direct positions() call failed: {pos_error}")
+                # Fallback: try with longer wait
+                self.ib.sleep(2)
+                all_positions = self.ib.positions()
+                account_positions = [pos for pos in all_positions if pos.account == account_id]
+                logger.info(f"Retrieved {len(account_positions)} positions for account {account_id} (fallback)")
+                return account_positions
             
         except Exception as e:
             logger.error(f"Error retrieving portfolio for account {account_id}: {e}")

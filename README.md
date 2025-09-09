@@ -1,663 +1,531 @@
-# Comprehensive Portfolio Management Platform 🚀
+# Simple Order Management Platform 🚀
 
-> 전문적인 포트폴리오 관리를 위한 완전 자동화된 IBKR 통합 플랫폼  
-> **4개 핵심 목표 100% 완성**: 자동화 일일 업데이트 + 주문 생성 + 마켓 데이터 분리 + 싱가포르 시간 스케줄링
+> **포트폴리오 관리와 모델 기반 리밸런싱을 위한 완전 통합 플랫폼**  
+> IBKR API 연동 + 자동화된 포지션 다운로드 + 스마트 리밸런싱 시스템
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![IBKR](https://img.shields.io/badge/IBKR-API-green.svg)](https://interactivebrokers.github.io/tws-api/)
-[![Singapore Time](https://img.shields.io/badge/Schedule-Singapore%20Timezone-red.svg)](#-singapore-timezone-scheduling)
 [![Production Ready](https://img.shields.io/badge/Production-Ready-success.svg)](#-deployment-infrastructure)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## 📋 **목차**
 
-1. [🎯 핵심 목표 달성](#-4개-핵심-목표-완전-달성)
+1. [🎯 핵심 기능](#-핵심-기능)
 2. [🚀 빠른 시작](#-빠른-시작)
-3. [📊 IBKR 표준 Excel 출력](#-ibkr-표준-excel-출력-형식)
-4. [🛠️ CLI 인터페이스](#️-포괄적-cli-인터페이스)
-5. [🚀 간소화된 CLI 단축 명령어](#-간소화된-cli-단축-명령어)
-6. [👥 **실무진을 위한 실용 가이드**](#-실무진을-위한-실용-가이드) ⭐ **신규**
-7. [⚙️ 역할 기반 접근 제어](#️-역할-기반-접근-제어)
-8. [📈 마켓 데이터 캐싱](#-마켓-데이터-캐싱-시스템)
-9. [🕐 Singapore Timezone 스케줄링](#-singapore-timezone-스케줄링)
-10. [🛠️ 배포 인프라](#️-배포-인프라스트럭처)
+3. [📊 포지션 다운로드](#-포지션-다운로드-시스템)
+4. [⚖️ 모델 포트폴리오 리밸런싱](#️-모델-포트폴리오-리밸런싱)
+5. [🛠️ 일반적인 사용법](#️-일반적인-사용법)
+6. [💡 실무 시나리오](#-실무-시나리오)
+7. [🔧 고급 기능](#-고급-기능)
 
-## 🎯 **4개 핵심 목표 완전 달성**
+## 🎯 **핵심 기능**
 
-### ✅ **Goal 1: 일일 자동 포트폴리오 포지션 업데이트**
-- **IBKR 표준 Excel 형식**: Summary/Matrix 시트 완전 지원
-- **SharePoint 자동 업로드**: 날짜별 폴더 구성 및 자동 파일 관리  
-- **이메일 첨부파일 전송**: minsu.yeom@arkifinance.com 자동 발송
-- **Net Liquidation Value & Securities Gross Position Value**: IBKR 표준 계산
-- **Asset Class 매핑**: Universe 데이터 기반 자산 분류
+### ✅ **포트폴리오 위치 추적**
+- **IBKR 실시간 연동**: Interactive Brokers API를 통한 실시간 포지션 데이터
+- **SGD 기준 통화**: 모든 금액이 자동으로 SGD로 통일 표시
+- **Excel 표준 출력**: IBKR 호환 Summary + Matrix 시트 형식
+- **다중 계좌 지원**: 여러 계좌를 한 번에 통합 다운로드
 
-### ✅ **Goal 2: 주문 생성 시스템**
-- **모델 포트폴리오 기반**: GTAA B301, Peace of Mind B101 등 지원
-- **3가지 주문 유형**: 입금(deposit), 출금(withdrawal), 리밸런싱(rebalance)
-- **CSV 주문지 출력**: 바로 실행 가능한 주문 형식
-- **현재 포지션 통합**: IBKR API 연동으로 실시간 포지션 반영
-- **최소 거래 금액 제어**: 불필요한 소액 거래 방지
+### ✅ **모델 포트폴리오 기반 리밸런싱**
+- **GTAA 전략**: SPMO(33.34%) + SMH(33.33%) + IAU(33.33%) 미국 ETF 포트폴리오
+- **2일차 주문 전략**: Day 1 (MoC 정수) + Day 2 (LIMIT 소수점)
+- **IBKR CSV 주문지**: 바로 실행 가능한 표준 형식 주문서 생성
+- **스마트 리밸런싱**: 현재 비중 vs 목표 비중 자동 계산 및 최적화
 
-### ✅ **Goal 3: 마켓 데이터 플랫폼 분리**  
-- **역할 기반 접근 제어**: Portfolio Manager vs Trade Assistant
-- **캐시 기반 오프라인 작업**: 실시간 가격 의존성 제거
-- **가격 데이터 추적**: 사용된 가격 날짜 명확 표시
-- **IBKR Profile 관리**: 사용자 유형별 별도 설정
-- **마켓 데이터 신선도 검증**: 24시간 기준 자동 업데이트 판단
-
-### ✅ **Goal 4: 싱가포르 시간대 스케줄링**
-- **완전 자동화 일정**: 매일 SGT 6:00 AM (마켓 데이터) + 6:30 AM (포트폴리오)
-- **APScheduler 기반**: 안정적인 cron-style 스케줄링
-- **다중 배포 옵션**: systemd service, manual daemon, cron 지원
-- **포괄적 에러 처리**: 실패 시 자동 이메일 알림
-- **프로덕션 데몬 관리**: PID 파일, 로그 관리, 상태 모니터링
+### ✅ **완전 자동화**
+- **일일 스케줄링**: Singapore 시간대 기준 자동 실행
+- **캐시 시스템**: 오프라인 작업을 위한 마켓 데이터 캐싱
+- **통합 워크플로우**: 데이터 수집 → 분석 → 보고서 → 주문지까지 원스톱
 
 ## 🚀 **빠른 시작**
 
-### 1. 설치 및 배포
+### 1. 설치
 ```bash
-# 저장소 복제
 git clone https://github.com/my2582/simple-order-management-platform.git
 cd simple-order-management-platform
-
-# 의존성 설치  
 pip install -r requirements.txt
-
-# 프로덕션 배포 (권장)
-sudo ./scripts/deploy_scheduler.sh
 ```
 
-### 2. 자동 스케줄러 시작
+### 2. IBKR 연결 설정
+1. IB Gateway 또는 TWS 실행
+2. API 설정에서 포트 활성화 (Paper: 4002, Live: 4001)
+3. "Read-Only API" 옵션 활성화 (안전을 위해)
+
+### 3. 첫 포지션 다운로드
 ```bash
-# 방법 1: CLI 명령어로 시작
-python3 -m simple_order_management_platform.cli start-scheduler
+# 모든 계좌 포지션 다운로드
+./positions
 
-# 방법 2: 데몬 스크립트로 관리
-./scripts/scheduler_daemon.py start
-
-# 방법 3: systemd 서비스 (프로덕션)
-sudo systemctl start portfolio-scheduler
-sudo systemctl enable portfolio-scheduler  # 부팅 시 자동 시작
+# 특정 계좌만 다운로드
+./positions --accounts DU123456
 ```
 
-### 3. 상태 확인 및 모니터링
+### 4. 모델 포트폴리오 확인
 ```bash
-# 스케줄러 상태 확인
-python3 -m simple_order_management_platform.cli scheduler-status
+# 사용 가능한 모델 포트폴리오 목록
+./model-portfolios
 
-# 다음 실행 시간 확인
-# ✓ Current time (SGT): 2025-09-07 01:12:48 +08
-# • Market Data Update: 06:00 SGT daily  
-# • Portfolio Update: 06:30 SGT daily
-# 🟢 Scheduler Status: RUNNING
-
-# 시스템 통합 테스트
-python3 -m simple_order_management_platform.cli test-integrations
+# GTAA 모델 상세 정보
+python3 -m simple_order_management_platform.cli show-model-portfolio GTAA
 ```
 
-## 📊 **IBKR 표준 Excel 출력 형식**
+## 📊 **포지션 다운로드 시스템**
 
-### Summary Sheet
+### 🎯 **기본 사용법**
+
+#### 📈 **실시간 포지션 다운로드**
+```bash
+# 전체 계좌 포지션 (실시간 가격)
+./positions
+
+# 특정 계좌만 선택
+./positions --accounts DU123456,DU789012
+
+# Paper Trading 계좌 (4002 포트)
+./positions --port 4002
+
+# Live Trading 계좌 (4001 포트)  
+./positions --port 4001
+```
+
+#### ⚡ **캐시된 가격으로 빠른 조회**
+```bash
+# 캐시된 가격 사용 (30초 내 완료)
+./positions-cached
+
+# 특정 계좌만 빠른 조회
+./positions-cached --accounts DU123456
+```
+
+### 📋 **출력 형식**
+
+#### **Excel 파일 구조**
+생성되는 Excel 파일 (`./data/output/portfolio_positions_YYYYMMDD_HHMMSS.xlsx`):
+
+**Summary 시트**:
 | Account | Net Liquidation Value | Securities Gross Position Value | Cash | % of Net Liq |
 |---------|----------------------|--------------------------------|------|-------------|
-| DU123456| $150,250.00         | $142,750.00                   | $7,500.00 | 95.01% / 4.99% |
+| DU123456| SGD 150,250.00      | SGD 142,750.00                | SGD 7,500.00 | 95.01% / 4.99% |
 
-### Matrix Sheet  
-| Account_ID | Gross/NLV | Cash % | SPY_Weight | QQQ_Weight | IWM_Weight | Asset_Class |
-|------------|-----------|--------|------------|------------|------------|-------------|
-| DU123456   | 95.01%    | 4.99%  | 33.5%      | 33.2%      | 33.3%      | ETF        |
+**Matrix 시트**:
+| Account_ID | Gross/NLV | Cash % | SPMO_Weight | SMH_Weight | IAU_Weight | 
+|------------|-----------|--------|-------------|------------|------------|
+| DU123456   | 95.01%    | 4.99%  | 33.5%       | 33.2%      | 33.3%      |
 
-### 자동 SharePoint 저장 경로
+#### **콘솔 출력 예시**
 ```
-/OneDrive-SharedLibraries-OPTIMALVEST/Arki Investment - Trading/
-├── 2025-09-06/
-│   ├── portfolio_positions_20250906_063000.xlsx  # 매일 6:30 AM 자동 업로드
-│   └── market_data_report_20250906_060000.xlsx   # 매일 6:00 AM 자동 업로드
-└── simple-order-management-platform/             # 프로젝트 백업
+📊 Starting IBKR standard portfolio positions download
+✅ Connected to IBKR (Port: 4002, Client ID: 1)
+📈 Found 2 managed accounts: ['DU123456', 'DU789012']
+
+Account: DU123456
+├─ Total Value: SGD 150,250.00
+├─ Active Positions: 3
+├─ SPMO: 150 shares (SGD 50,325.00)
+├─ SMH: 200 shares (SGD 50,200.00) 
+├─ IAU: 1,500 shares (SGD 42,225.00)
+└─ Cash: SGD 7,500.00
+
+💾 Excel saved: ./data/output/portfolio_positions_20250908_143022.xlsx
 ```
 
-## 🛠️ **포괄적 CLI 인터페이스**
+### 🔄 **마켓 데이터 관리**
 
-### 자동화 및 스케줄링
+#### **가격 데이터 업데이트**
 ```bash
-# 스케줄러 관리
-python3 -m simple_order_management_platform.cli start-scheduler
-python3 -m simple_order_management_platform.cli scheduler-status  
-python3 -m simple_order_management_platform.cli test-scheduler
+# 일반 업데이트 (24시간 이내면 스킵)
+./update-market-data
 
-# 수동 실행 (스케줄러와 동일한 워크플로우)
-python3 -m simple_order_management_platform.cli run-daily-update
-python3 -m simple_order_management_platform.cli update-market-data
-```
-
-## 🚀 **간소화된 CLI 단축 명령어**
-
-### 🎯 **새로운 실행 방식** 
-이제 긴 `python3 -m simple_order_management_platform.cli` 대신 간단한 실행 스크립트를 사용할 수 있습니다:
-
-```bash
-# 전체 도움말 보기
-./simple-order-help
-
-# 기존 방식 vs 새로운 단축 방식
-# ❌ 기존: python3 -m simple_order_management_platform.cli update-market-data
-# ✅ 새로운: ./update-market-data
-```
-
-### 🔄 **마켓 데이터 작업**
-```bash
-./update-market-data           # 마켓 데이터 캐시 업데이트
-./market-data-status          # 캐시 상태 확인
-```
-
-### 📊 **포트폴리오 작업**
-```bash  
-./positions          # 실시간 가격으로 포지션 다운로드
-./positions-cached   # 캐시된 가격으로 포지션 다운로드
-./run-daily-update           # 완전한 일일 업데이트 워크플로우
-```
-
-### 📝 **주문 관리**
-```bash
-./generate-orders            # 거래 주문 생성
-./list-portfolios           # 모델 포트폴리오 목록
-```
-
-### 🔧 **시스템 관리**
-```bash
-./test-connection           # IBKR 연결 테스트
-./test-integrations         # 전체 시스템 통합 테스트
-```
-
-### ⏰ **스케줄러 관리**
-```bash
-./start-scheduler           # 자동 스케줄러 데몬 시작
-./scheduler-status          # 스케줄러 상태 확인
-```
-
-### 💡 **사용 예제**
-```bash
-# 강제 마켓 데이터 업데이트
+# 강제 업데이트 (최신 가격 필수)
 ./update-market-data --force
 
-# 특정 계좌 포지션 다운로드
-./positions --accounts DU123456
-
-# 리밸런싱 주문 생성
-./generate-orders DU123456 B301 --type rebalance --amount 100000
-
-# Live 포트 연결 테스트 (4001번 포트)
-./test-connection --ib-port 4001
+# 캐시 상태 확인
+./market-data-status
 ```
 
-### 포트폴리오 관리
-```bash
-# IBKR 표준 형식 다운로드 (asset class 매핑 포함)
-python3 -m simple_order_management_platform.cli download-positions-ibkr
+#### **캐시 상태 확인 결과**
+```
+📊 Market Data Cache Status
+Current time (SGT): 2025-09-08 14:30:45 +08
+Cache Status: ✅ FRESH (Age: 2.3 hours)
+Last Updated: 2025-09-08 12:15:22 +08  
+Cached Symbols: 450+ symbols
+```
 
-# 캐시된 가격으로 오프라인 다운로드
-python3 -m simple_order_management_platform.cli download-positions-cached
+## ⚖️ **모델 포트폴리오 리밸런싱**
+
+### 🎯 **GTAA 모델 포트폴리오**
+
+#### **포트폴리오 구성**
+| 종목 | 비중 | 설명 |
+|------|------|------|
+| **SPMO** | 33.34% | Invesco S&P 500 Momentum ETF |
+| **SMH** | 33.33% | VanEck Semiconductor ETF |
+| **IAU** | 33.33% | iShares Gold Trust |
+
+```bash
+# GTAA 모델 상세 정보 보기
+python3 -m simple_order_management_platform.cli show-model-portfolio GTAA
+```
+
+### 🔧 **계정 설정 및 할당**
+
+#### **계정을 모델 포트폴리오에 할당**
+```bash
+# 수동 할당
+python3 -m simple_order_management_platform.cli assign-account DU123456 GTAA
+
+# 또는 헬퍼 스크립트 사용 (여러 계정 한 번에)
+python3 scripts/setup_gtaa_accounts.py DU123456 DU789012 DU345678
+```
+
+### 📊 **리밸런싱 분석**
+
+#### **현재 포트폴리오와 목표 비중 비교**
+```bash
+# 전체 계좌 리밸런싱 분석
+./rebalance
+
+# 특정 계좌만 분석
+./rebalance --accounts DU123456
+
+# 특정 모델 포트폴리오로 분석
+./rebalance --model-portfolio GTAA
+```
+
+#### **분석 결과 예시**
+```
+⚖️ Calculating Rebalancing Requirements
+
+Account: DU123456
+Model Portfolio: GTAA
+Total Value: SGD 150,250.00
+
+┌────────┬──────────────┬──────────────┬────────────┬────────────┬─────────────────┐
+│ Symbol │ Current Wt.  │ Target Wt.   │ Difference │ Current    │ Required Action │
+│        │              │              │            │ Shares     │                 │
+├────────┼──────────────┼──────────────┼────────────┼────────────┼─────────────────┤
+│ SPMO   │ 33.50%       │ 33.34%       │ +0.16%     │ 150.00     │ -1.20           │
+│ SMH    │ 33.21%       │ 33.33%       │ -0.12%     │ 200.00     │ +1.85           │  
+│ IAU    │ 33.29%       │ 33.33%       │ -0.04%     │ 1,500.00   │ +15.30          │
+└────────┴──────────────┴──────────────┴────────────┴────────────┴─────────────────┘
+
+📈 Rebalancing recommended
+```
+
+### 📋 **주문지 생성**
+
+#### **IBKR 호환 CSV 주문지 생성**
+```bash
+# 전체 주문지 (Day 1 + Day 2)
+./generate-orders orders.csv
+
+# Day 1만 (MoC 정수 주문)
+./generate-orders day1_orders.csv --day 1
+
+# Day 2만 (LIMIT 소수점 주문)
+./generate-orders day2_orders.csv --day 2
 
 # 특정 계좌만
-python3 -m simple_order_management_platform.cli download-positions-ibkr --accounts DU123456,DU789012
+./generate-orders orders.csv --accounts DU123456
 ```
 
-### 마켓 데이터 관리
-```bash
-# 마켓 데이터 캐시 상태 확인
-python3 -m simple_order_management_platform.cli market-data-status
-# Cache Status: FRESH (Age: 2.3 hours)
-
-# Trade Assistant 역할로 마켓 데이터 업데이트
-python3 -m simple_order_management_platform.cli update-market-data
+#### **생성된 IBKR CSV 형식**
+```csv
+Action,Quantity,Symbol,SecType,Exchange,Currency,TimeInForce,OrderType,LmtPrice,BasketTag,Account,UsePriceMgmtAlgo,OrderRef
+SELL,1,SPMO,STK,SMART,USD,DAY,MOC,,EX_20250908_1,DU123456,TRUE,
+BUY,1,SMH,STK,SMART,USD,DAY,MOC,,EX_20250908_1,DU123456,TRUE,
+BUY,15,IAU,STK,SMART,USD,DAY,MOC,,EX_20250908_1,DU123456,TRUE,
 ```
 
-### 주문 생성 시스템
+### 🎯 **2일차 주문 전략**
+
+#### **Day 1 주문 (Market on Close)**
+- **대상**: 5% 이상 비중 종목 중 최소 비중 종목 제외
+- **주문 타입**: MOC (Market on Close)
+- **수량**: 정수 단위만 (fractional shares 불가)
+- **목적**: 주요 포지션 조정
+
+#### **Day 2 주문 (Limit)**
+- **대상**: 잔여 모든 종목 (소수점 조정 포함)
+- **주문 타입**: LIMIT 
+- **수량**: 소수점 단위까지 정확한 조정
+- **목적**: 정밀한 비중 맞추기
+
+## 🛠️ **일반적인 사용법**
+
+### 📈 **일일 워크플로우**
+
+#### 🌅 **매일 아침 (업무 시작)**
 ```bash
-# 모델 포트폴리오 기반 주문 생성
-python3 -m simple_order_management_platform.cli generate-orders DU123456 B301 --type deposit --amount 25000
-
-# 리밸런싱 주문 (현재 포지션 기반)
-python3 -m simple_order_management_platform.cli generate-orders DU123456 B301 --type rebalance --amount 100000
-
-# 출금 주문 (비례 매도)  
-python3 -m simple_order_management_platform.cli generate-orders DU123456 B301 --type withdrawal --amount 15000 --proportional
-```
-
-### 시스템 관리 및 테스트
-```bash
-# 전체 통합 테스트
-python3 -m simple_order_management_platform.cli test-integrations
-# ✅ IBKR Connection: PASSED
-# ✅ SharePoint Integration: PASSED  
-# ✅ Email Service: PASSED
-# ✅ Market Data Cache: PASSED
-
-# 사용 가능한 모델 포트폴리오 확인
-python3 -m simple_order_management_platform.cli list-portfolios
-```
-
-## 👥 **실무진을 위한 실용 가이드**
-
-### 🎯 **주요 업무별 명령어 가이드**
-
-#### 📊 **1. 고객 포트폴리오 현황 확인하기**
-**언제 사용**: 고객 문의 시, 포트폴리오 보고서 작성 시, 월말/분기말 정산 시
-
-```bash
-# 🚀 간단한 방법 (추천)
-./positions
-
-# 📈 특정 고객 계좌만 확인
-./positions --accounts DU123456
-
-# ⚡ 빠른 확인 (캐시된 가격 사용)
-./positions-cached --accounts DU123456,DU789012
-```
-
-**결과물**: 
-- Excel 파일이 `./data/output/` 폴더에 생성됨
-- IBKR 표준 형식 (Summary + Matrix 시트)
-- SharePoint에 자동 업로드 (설정된 경우)
-
-#### 📈 **2. 유니버스 종목 가격 업데이트하기**  
-**언제 사용**: 장 마감 후, 포트폴리오 평가 전, 리밸런싱 계산 전
-
-```bash
-# 🔄 일반 업데이트 (24시간 이내면 스킵)
-./update-market-data
-
-# ⚡ 강제 업데이트 (최신 가격 필수)
-./update-market-data --force
-
-# 📊 현재 가격 데이터 상태 확인
-./market-data-status
-```
-
-**확인 방법**:
-```bash
-./market-data-status
-# ✅ Cache Status: FRESH (Age: 2.3 hours)
-# 📅 Last Updated: 2025-09-07 14:30:15 +08  
-# 📊 Cached Symbols: 450+ symbols
-```
-
-#### 🔄 **3. 완전한 일일 업데이트 실행하기**
-**언제 사용**: 매일 업무 시작 시, 전체 데이터 동기화 필요 시
-
-```bash
-# 🚀 원클릭 전체 업데이트
-./run-daily-update
-
-# 이 명령어는 다음을 자동 실행:
-# 1️⃣ 마켓 데이터 업데이트
-# 2️⃣ 전체 계좌 포지션 다운로드  
-# 3️⃣ Excel 보고서 생성
-# 4️⃣ SharePoint 업로드
-# 5️⃣ 이메일 발송
-```
-
-#### 📝 **4. 고객 주문서 생성하기**
-**언때 사용**: 고객 입금/출금/리밸런싱 요청 시
-
-```bash
-# 💰 입금 주문서 (신규 투자)
-./generate-orders DU123456 B301 --type deposit --amount 50000
-
-# 💸 출금 주문서 (자금 인출)
-./generate-orders DU123456 B301 --type withdrawal --amount 20000
-
-# ⚖️ 리밸런싱 주문서 (포트폴리오 조정)
-./generate-orders DU123456 B301 --type rebalance --amount 150000
-
-# 📋 사용 가능한 모델 포트폴리오 확인
-./list-portfolios
-```
-
-### 💡 **일반적인 업무 시나리오**
-
-#### 🌅 **매일 아침 업무 시작 시**
-```bash
-# 1. 시스템 상태 체크
+# 1. 시스템 상태 확인
 ./test-integrations
 
-# 2. 데이터 업데이트
+# 2. 마켓 데이터 업데이트
 ./update-market-data
 
-# 3. 전체 포지션 다운로드  
+# 3. 전체 포지션 다운로드
 ./positions
 
-# ✅ 결과: 최신 데이터로 업데이트된 포트폴리오 보고서 완성
+# ✅ 결과: 최신 데이터 포트폴리오 보고서 완성
 ```
 
-#### 📞 **고객 문의 응대 시**
+#### 📊 **완전 자동화 실행**
 ```bash
-# 빠른 포지션 확인 (캐시 사용)
+# 원클릭 전체 업데이트 (마켓데이터 + 포지션)
+./run-daily-update
+
+# 이 명령어는 자동 실행:
+# 1️⃣ 마켓 데이터 업데이트
+# 2️⃣ 전체 계좌 포지션 다운로드
+# 3️⃣ Excel 보고서 생성
+# 4️⃣ SharePoint 업로드 (설정된 경우)
+# 5️⃣ 이메일 발송 (설정된 경우)
+```
+
+### 🕒 **자동 스케줄링**
+
+#### **Singapore 시간대 자동화**
+```bash
+# 스케줄러 시작
+./start-scheduler
+
+# 스케줄러 상태 확인
+./scheduler-status
+
+# 기본 스케줄:
+# • 06:00 SGT: 마켓 데이터 업데이트
+# • 06:30 SGT: 포트폴리오 위치 다운로드
+```
+
+## 💡 **실무 시나리오**
+
+### 🎯 **시나리오 1: 고객 포트폴리오 현황 문의**
+```bash
+# 빠른 확인 (캐시 사용, ~30초)
 ./positions-cached --accounts DU123456
 
-# 특정 고객 계좌만 즉시 확인 가능
-# 처리시간: ~30초 (vs 실시간 다운로드 3-5분)
+# 정확한 확인 (실시간, ~3분)
+./positions --accounts DU123456
 ```
 
-#### 📊 **월말 보고서 작성 시**
+### 💰 **시나리오 2: 고객 신규 투자 (입금)**
+```bash
+# 1. 계좌를 GTAA 모델에 할당
+python3 -m simple_order_management_platform.cli assign-account DU123456 GTAA
+
+# 2. 리밸런싱 필요도 확인
+./rebalance --accounts DU123456
+
+# 3. 주문서 생성
+./generate-orders new_investment_orders.csv --accounts DU123456
+```
+
+### ⚖️ **시나리오 3: 정기 리밸런싱**
+```bash
+# 1. 전체 계좌 리밸런싱 분석
+./rebalance
+
+# 2. Day 1 주문서 생성 (MoC)
+./generate-orders day1_rebalance.csv --day 1
+
+# 3. (다음날) Day 2 주문서 생성 (LIMIT)
+./generate-orders day2_rebalance.csv --day 2
+```
+
+### 📱 **시나리오 4: 고객 출금 요청**
+```bash
+# 현재 포지션 확인
+./positions --accounts DU123456
+
+# 출금용 주문서는 현재 GTAA 모델로 비례 매도
+# (향후 withdrawal 타입 추가 예정)
+```
+
+### 📞 **시나리오 5: 월말 보고서 작성**
 ```bash
 # 1. 최신 가격으로 강제 업데이트
 ./update-market-data --force
 
-# 2. 전체 고객 포지션 다운로드
-./positions  
+# 2. 전체 계좌 포지션 다운로드
+./positions
 
-# 3. 결과 파일을 회계팀에 공유
-# 파일 위치: ./data/output/portfolio_positions_YYYYMMDD_HHMMSS.xlsx
+# 3. 파일 위치 확인
+ls -la ./data/output/portfolio_positions_*.xlsx
 ```
 
-#### 🔧 **시스템 문제 발생 시**
+## 🔧 **고급 기능**
+
+### 🔗 **IBKR 연결 옵션**
+
+#### **다중 포트 지원**
 ```bash
-# 1. IBKR 연결 상태 확인  
+# Paper Trading (기본)
+./positions --port 4002
+
+# Live Trading
+./positions --port 4001  
+
+# TWS (Trader Workstation)
+./positions --port 7497
+
+# 자동 포트 탐지 (권장)
+./positions  # 4001→4002→7497→7496 순서로 시도
+```
+
+#### **연결 테스트**
+```bash
+# IBKR 연결 상태 확인
 ./test-connection
 
-# 2. 전체 통합 테스트
+# 특정 포트 테스트
+./test-connection --port 4001
+
+# 전체 시스템 통합 테스트
 ./test-integrations
-
-# 3. 스케줄러 상태 확인
-./scheduler-status
-
-# 4. 수동으로 특정 계좌만 테스트
-./positions --accounts DU123456 --ib-port 4001
 ```
 
-### ⚠️ **중요 주의사항**
+### ⚙️ **설정 및 커스터마이징**
 
-#### 🔐 **IBKR Gateway 연결**
-- **Live 포트**: 4001 (실제 계좌)
-- **Paper 포트**: 4002 (연습 계좌)  
-- 명령어 실행 전 IB Gateway 실행 필수
-
-#### ⏱️ **실행 시간 가이드**
-- `./update-market-data`: 2-5분 (종목 수에 따라)
-- `./positions`: 3-8분 (계좌 수에 따라)
-- `./positions-cached`: 30초-1분 (캐시 사용)
-- `./run-daily-update`: 10-15분 (전체 프로세스)
-
-#### 📁 **파일 저장 위치**
-- **포트폴리오 보고서**: `./data/output/`
-- **마켓 데이터**: `./data/market_data_cache/`  
-- **주문서**: `./data/output/`
-- **로그 파일**: 터미널에 실시간 표시
-
-### 🆘 **도움말 및 지원**
-
-```bash
-# 💡 전체 명령어 목록 보기
-./simple-order-help
-
-# 📖 특정 명령어 도움말
-./positions --help
-./generate-orders --help
-./update-market-data --help
-```
-
-**문제 발생 시**: 로그 메시지 확인 후 시스템 관리자에게 전달
-
-## ⚙️ **역할 기반 접근 제어**
-
-### Portfolio Manager 역할
-- **권한**: 포트폴리오 다운로드, 계좌 요약, 주문 생성
-- **IBKR Profile**: `portfolio_manager` (Client ID: 1, 전체 거래 접근)
-- **사용 사례**: 일일 포트폴리오 업데이트, 고객 주문 처리
-
-### Trade Assistant 역할  
-- **권한**: 마켓 데이터 접근, 가격 다운로드, Universe 업데이트
-- **IBKR Profile**: `trade_assistant` (Client ID: 2, 마켓 데이터 전용)
-- **사용 사례**: 마켓 데이터 캐시 업데이트, 가격 정보 관리
-
+#### **모델 포트폴리오 추가/수정**
 ```yaml
-# config/app.yaml 역할 설정
-ibkr_profiles:
-  portfolio_manager:
-    permissions: ["portfolio_download", "order_generation", "account_summary"]
-  trade_assistant:  
-    permissions: ["market_data", "universe_update", "price_download"]
+# src/simple_order_management_platform/config/model_portfolios.yaml
+model_portfolios:
+  CUSTOM:
+    name: "Custom Strategy"
+    description: "My custom portfolio"
+    holdings:
+      - symbol: "VTI"
+        target_weight: 0.6000  # 60%
+        security_type: "STK"
+      - symbol: "VXUS"  
+        target_weight: 0.4000  # 40%
+        security_type: "STK"
 ```
 
-## 📈 **마켓 데이터 캐싱 시스템**
+#### **계좌 매핑 설정**
+```yaml
+# config/model_portfolios.yaml
+account_mappings:
+  "DU123456": "GTAA"
+  "DU789012": "GTAA" 
+  "DU345678": "CUSTOM"
+```
 
-### 캐시 기반 오프라인 작업
+### 📊 **데이터 및 로깅**
+
+#### **파일 저장 위치**
+```
+./data/
+├── output/                              # 생성된 보고서
+│   ├── portfolio_positions_20250908_143022.xlsx
+│   └── orders_20250908_143530.csv
+├── market_data_cache/                   # 마켓 데이터 캐시
+│   ├── prices_20250908.json
+│   └── cache_metadata.json
+└── logs/                               # 로그 파일
+    ├── scheduler_daemon.log
+    └── application.log
+```
+
+#### **실행 시간 가이드**
+| 작업 | 소요 시간 | 설명 |
+|------|-----------|------|
+| `./positions-cached` | ~30초 | 캐시된 가격 사용 |
+| `./positions` (1계좌) | ~2분 | 실시간 가격, 단일 계좌 |
+| `./positions` (3계좌) | ~5분 | 실시간 가격, 다중 계좌 |
+| `./update-market-data` | ~3분 | 450+ 종목 가격 업데이트 |
+| `./rebalance` | ~1분 | 리밸런싱 계산 |
+| `./generate-orders` | ~30초 | IBKR CSV 생성 |
+| `./run-daily-update` | ~10분 | 완전한 워크플로우 |
+
+### 🆘 **문제 해결**
+
+#### **일반적인 오류**
+
+**1. IBKR 연결 실패**
+```bash
+# 포트 확인
+./test-connection --port 4002
+
+# IB Gateway 재시작 후 재시도
+./positions --port 4002
+```
+
+**2. 마켓 데이터 오래됨**
 ```bash
 # 캐시 상태 확인
-python3 -m simple_order_management_platform.cli market-data-status
-# Current time (SGT): 2025-09-07 01:12:48 +08
-# Cache Status: FRESH (Age: 2.3 hours)
-# Last Updated: 2025-09-06 22:30:15 +08
+./market-data-status
+
+# 강제 업데이트
+./update-market-data --force
 ```
 
-### 자동 신선도 관리
-- **24시간 신선도**: 캐시 데이터의 유효성 자동 검증
-- **Trade Assistant 업데이트**: 매일 6:00 AM SGT 자동 갱신
-- **가격 날짜 추적**: 포트폴리오에 사용된 가격 날짜 명시
-- **오프라인 우선**: 실시간 가격 의존성 최소화
-
-## 🕐 **Singapore Timezone 스케줄링**
-
-### 자동화된 일일 스케줄
-| 시간 | 작업 | 설명 |
-|------|------|------|
-| **06:00 SGT** | Market Data Update | Trade Assistant 역할로 전체 Universe 가격 업데이트 |
-| **06:30 SGT** | Portfolio Update | Portfolio Manager 역할로 전체 계좌 포지션 다운로드 |
-
-### 포괄적 워크플로우 (매일 06:30 실행)
-1. **포지션 다운로드**: IBKR API 연결 및 전체 계좌 데이터 수집
-2. **Asset Class 매핑**: Universe 데이터로 ETF/Futures 분류  
-3. **Excel 생성**: IBKR 표준 형식 (Summary + Matrix 시트)
-4. **SharePoint 업로드**: 날짜별 폴더에 자동 저장
-5. **이메일 발송**: 첨부파일 포함 상세 리포트 전송
-6. **에러 처리**: 실패 시 자동 알림 및 로그 기록
-
-## 🛠️ **배포 인프라스트럭처**
-
-### 프로덕션 배포 스크립트
+**3. 계좌 매핑 오류**
 ```bash
-# 원클릭 배포 및 설정
-sudo ./scripts/deploy_scheduler.sh
+# 계좌 수동 할당
+python3 -m simple_order_management_platform.cli assign-account DU123456 GTAA
 
-# 배포 옵션 선택:
-# 1) systemd service 설치 (권장)
-# 2) 수동 데몬 관리
-# 3) cron 기반 대안
-# 4) 모든 옵션 설치
+# 또는 config 파일 직접 수정
+nano src/simple_order_management_platform/config/model_portfolios.yaml
 ```
 
-### systemd 서비스 관리
+#### **도움말 및 지원**
 ```bash
-# 서비스 상태 확인
-sudo systemctl status portfolio-scheduler
+# 전체 명령어 목록
+./simple-order-help
 
-# 로그 실시간 모니터링  
-sudo journalctl -u portfolio-scheduler -f
+# 특정 명령어 도움말
+./positions --help
+./rebalance --help
+./generate-orders --help
 
-# 자동 부팅 시 시작
-sudo systemctl enable portfolio-scheduler
+# 자세한 로그와 함께 실행
+python3 -m simple_order_management_platform.cli download-positions-ibkr --verbose
 ```
 
-### 수동 데몬 관리
-```bash
-# 데몬 시작/정지/상태
-./scripts/scheduler_daemon.py start|stop|status
+## 🎯 **시스템 특징**
 
-# 상세 상태 정보
-./scripts/scheduler_daemon.py status
-# Status: 🟢 RUNNING
-# PID: 12345  
-# Uptime: 24.5 hours
-# Memory Usage: 156.3 MB
-# CPU Usage: 0.2%
+### ✅ **Production-Ready**
+- **무인 자동화**: 24/7 스케줄링 지원
+- **견고한 에러 처리**: 연결 실패 시 자동 재시도
+- **캐시 기반**: 네트워크 의존성 최소화
+- **Unix 철학**: 각 도구는 한 가지 일을 완벽하게
 
-# 로그 확인
-./scripts/scheduler_daemon.py logs --follow
-```
+### ✅ **IBKR 표준 준수**
+- **ib-insync 기반**: 안정적인 IBKR API 연동
+- **SGD 기준 통화**: 모든 계산 결과 일관성
+- **표준 용어**: Net Liquidation Value, Securities Gross Position Value
+- **CSV 호환**: IBKR에서 바로 실행 가능한 주문 형식
 
-## 📊 **지원하는 모델 포트폴리오**
+### ✅ **사용자 친화적**
+- **직관적 명령어**: `./positions`, `./rebalance`, `./generate-orders`
+- **실시간 피드백**: 진행 상황 실시간 표시
+- **풍부한 출력**: 콘솔 + Excel + CSV 다중 형식
+- **유연한 옵션**: 계좌별, 포트별, 모델별 세밀한 제어
 
-| Portfolio ID | 전략명 | 구성 종목 | 비중 | 자산 클래스 |
-|--------------|--------|-----------|------|-------------|
-| **B301** | Future Fund - GTAA | SPMO, SMH, IAU | 33.33% 균등 | ETF |  
-| B101 | Peace of Mind | TBD | TBD | Mixed |
-| B201 | Income Builder - 1 | TBD | TBD | Fixed Income |
-| B202 | Income Builder - 2 | TBD | TBD | Fixed Income |
+## 📚 **추가 문서**
 
-### 주문 시나리오 지원
-- **신규 입금**: 모델 포트폴리오 비중대로 매수 주문 생성
-- **리밸런싱**: 현재 포지션 대비 목표 비중 조정 주문
-- **출금 처리**: 비례 매도 또는 큰 포지션 우선 매도
+- **[CLI 명령어 상세 가이드](docs/cli-reference.md)**
+- **[IBKR 연결 설정 방법](docs/ibkr-setup.md)**  
+- **[자동화 스케줄러 가이드](docs/SCHEDULER_GUIDE.md)**
+- **[모델 포트폴리오 정의](docs/model-portfolios.md)**
 
-## 📁 **전체 프로젝트 구조**
+## 🤝 **기여 및 지원**
 
-```
-simple-order-management-platform/
-├── src/simple_order_management_platform/
-│   ├── cli.py                          # 포괄적 CLI 인터페이스 (15개 명령어)
-│   ├── models/
-│   │   ├── portfolio.py                # 포트폴리오 데이터 모델
-│   │   ├── orders.py                   # 주문 데이터 모델  
-│   │   └── universe.py                 # Asset class 매핑 시스템
-│   ├── services/
-│   │   ├── portfolio_service.py        # 포트폴리오 다운로드 (캐시 지원)
-│   │   ├── order_service.py            # 모델 포트폴리오 기반 주문 생성
-│   │   ├── market_data_service.py      # 마켓 데이터 캐싱 및 관리
-│   │   ├── automation_service.py       # 완전 자동화 워크플로우
-│   │   └── scheduler_service.py        # Singapore timezone 스케줄링
-│   ├── auth/
-│   │   └── permissions.py              # 역할 기반 접근 제어
-│   ├── integrations/
-│   │   ├── sharepoint.py               # SharePoint/OneDrive 자동 업로드
-│   │   └── email.py                    # Office 365 SMTP 이메일 통합
-│   ├── utils/
-│   │   ├── exporters.py                # 일반 Excel/CSV 출력
-│   │   └── ibkr_exporters.py           # IBKR 표준 형식 Excel 출력
-│   └── config/                         # 통합 설정 관리
-├── scripts/
-│   ├── deploy_scheduler.sh             # 프로덕션 배포 스크립트
-│   ├── scheduler_daemon.py             # 데몬 프로세스 관리
-│   └── portfolio-scheduler.service     # systemd 서비스 파일
-├── docs/
-│   └── SCHEDULER_GUIDE.md              # 완전한 스케줄러 가이드
-├── config/
-│   ├── app.yaml                        # 메인 앱 설정 (역할, 스케줄, 이메일)  
-│   └── universes/                      # Asset class 매핑 데이터
-├── data/
-│   ├── model_portfolios/               # 모델 포트폴리오 정의
-│   ├── market_data_cache/              # 마켓 데이터 캐시 저장소
-│   └── output/                         # 생성된 파일 출력
-└── logs/                               # 스케줄러 및 시스템 로그
-```
-
-## 🔍 **모니터링 및 문제 해결**
-
-### 상태 점검 체크리스트
-```bash
-# 1. 스케줄러 상태 확인  
-python3 -m simple_order_management_platform.cli scheduler-status
-
-# 2. 마켓 데이터 캐시 상태
-python3 -m simple_order_management_platform.cli market-data-status  
-
-# 3. 전체 통합 테스트
-python3 -m simple_order_management_platform.cli test-integrations
-
-# 4. IBKR 연결 테스트
-python3 -m simple_order_management_platform.cli test-connection
-```
-
-### 로그 파일 위치
-- **스케줄러 로그**: `logs/scheduler_daemon.log`
-- **에러 로그**: `logs/scheduler_daemon_error.log`  
-- **systemd 로그**: `journalctl -u portfolio-scheduler`
-- **애플리케이션 로그**: 각 CLI 명령어 실행 시 콘솔 출력
-
-### 일반적인 문제 해결
-
-**1. SharePoint 업로드 실패**
-```bash
-# OneDrive 동기화 상태 확인
-ls -la "/Users/msyeom/Library/CloudStorage/OneDrive-SharedLibraries-OPTIMALVEST.AIPTE.LTD/Arki Investment - Trading"
-
-# 권한 확인 및 수동 테스트  
-python3 -m simple_order_management_platform.cli test-integrations
-```
-
-**2. 이메일 발송 실패**  
-```bash
-# EMAIL_PASSWORD 환경변수 설정
-export EMAIL_PASSWORD="your-office365-app-password"
-
-# 이메일 연결 테스트
-python3 -m simple_order_management_platform.cli test-integrations
-```
-
-**3. 마켓 데이터 캐시 문제**
-```bash
-# 캐시 상태 및 신선도 확인
-python3 -m simple_order_management_platform.cli market-data-status
-
-# 강제 캐시 업데이트
-python3 -m simple_order_management_platform.cli update-market-data
-```
-
-## 🎯 **설계 철학 및 특징**
-
-### Production-Ready 아키텍처
-- **무인 자동화**: 수동 개입 없이 24/7 운영
-- **에러 복구**: 포괄적 예외 처리 및 자동 알림
-- **확장성**: 모듈화된 서비스 구조로 기능 확장 용이
-- **보안**: 역할 기반 접근 제어 및 환경변수 기반 인증
-
-### IBKR 표준 준수
-- **용어 일치**: Net Liquidation Value, Securities Gross Position Value 등
-- **형식 호환**: IBKR 기본 리포트와 동일한 Excel 구조
-- **API 최적화**: ib-insync 라이브러리 활용한 안정적 연결
-
-### 실용적 접근
-- **Portfolio Manager 중심**: 실제 업무 플로우 최적화
-- **Unix 철학**: 각 도구는 하나의 일을 완벽하게 수행
-- **즉시 사용**: 복잡한 설정 없이 바로 프로덕션 배포 가능
-
-## 📚 **상세 문서**
-
-- **[📋 스케줄러 완전 가이드](docs/SCHEDULER_GUIDE.md)**: 설치, 배포, 문제 해결
-- **[⚙️ CLI 명령어 레퍼런스](docs/cli-reference.md)**: 전체 명령어 상세 설명
-- **[🔧 IBKR 연결 설정](docs/ibkr-setup.md)**: Interactive Brokers 설정 가이드
-- **[📊 모델 포트폴리오 관리](docs/model-portfolios.md)**: 포트폴리오 정의 및 관리
-- **[💼 일일 워크플로우](docs/daily-workflow.md)**: 자동화된 일일 작업 플로우
-
-## 🤝 **기여하기**
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)  
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📄 **라이선스**
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
-
-## 📞 **지원**
-
-- **Issues**: GitHub Issues를 통한 버그 리포트 및 기능 요청
-- **Documentation**: [docs/](docs/) 디렉토리의 상세 가이드 참조
-- **Email**: 시스템 오류 시 자동으로 minsu.yeom@arkifinance.com으로 알림
+- **Issues**: GitHub Issues를 통한 버그 리포트
+- **Pull Requests**: 기능 개선 및 버그 수정 환영
+- **Documentation**: 문서 개선 제안
 
 ---
 
-## 🎉 **최근 업데이트 (2025-09-06)**
+## 🎉 **최신 업데이트 (2025-09-08)**
 
-### 🚀 **v2.0 - 완전 자동화 포트폴리오 관리 플랫폼**
-- ✅ **4개 핵심 목표 100% 완성**: 자동화, 주문생성, 데이터분리, 스케줄링
-- 🕐 **Singapore Timezone 자동화**: 매일 6:00/6:30 AM 무인 실행
-- 📊 **IBKR 표준 Excel 출력**: Summary/Matrix 시트 완전 지원
-- 🔐 **역할 기반 접근 제어**: Portfolio Manager vs Trade Assistant
-- 📧 **완전 자동화 워크플로우**: SharePoint + Email 통합
-- 🛠️ **프로덕션 배포 인프라**: systemd, daemon, cron 다중 지원
-- 📱 **15개 CLI 명령어**: 포괄적 관리 및 모니터링 도구
+### 🚀 **v3.0 - 모델 포트폴리오 리밸런싱 시스템**
+- ✅ **GTAA 모델 포트폴리오**: SPMO + SMH + IAU 균등 비중 전략
+- ✅ **2일차 주문 전략**: Day 1 MoC + Day 2 LIMIT 최적화
+- ✅ **IBKR CSV 주문지**: 표준 형식 자동 생성
+- ✅ **스마트 리밸런싱**: 현재 vs 목표 비중 자동 계산
+- ✅ **다중 계좌 지원**: 여러 계좌 통합 리밸런싱
+- ✅ **Unix 철학**: 간단하고 강력한 도구들
 
-**개발자 노트**: 실제 포트폴리오 매니저의 일일 업무를 완전 자동화하는 프로덕션 레디 플랫폼으로 진화했습니다. 수동 개입 없이 매일 정시에 포트폴리오 리포트가 SharePoint에 저장되고 이메일로 전송됩니다.
+**개발자 노트**: 실제 포트폴리오 매니저를 위한 완전한 리밸런싱 워크플로우를 구현했습니다. 이제 포지션 분석부터 IBKR 주문 실행까지 완전히 자동화된 프로세스를 제공합니다.

@@ -1,6 +1,4 @@
 #!/bin/bash
-# Simple wrapper for generating orders
-# Usage: ./generate-orders ACCOUNT_ID PORTFOLIO_ID [OPTIONS]
+# Order Generation Wrapper Script
 
-cd "$(dirname "$0")" || exit 1
-exec python3 -m simple_order_management_platform.cli generate-orders "$@"
+python3 -m simple_order_management_platform.cli generate-orders "$@"

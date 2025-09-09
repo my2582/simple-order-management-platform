@@ -1,0 +1,53 @@
+# Model Portfolio Configurations
+# GTAA: Global Tactical Asset Allocation
+
+model_portfolios:
+  GTAA:
+    name: "GTAA"
+    description: "Global Tactical Asset Allocation - US Listed ETF Portfolio"
+    holdings:
+      - symbol: "SPMO"
+        target_weight: 0.3334  # 33.34%
+        security_type: "STK"
+        exchange: "SMART"
+        currency: "USD"
+      - symbol: "SMH"
+        target_weight: 0.3333  # 33.33%
+        security_type: "STK" 
+        exchange: "SMART"
+        currency: "USD"
+      - symbol: "IAU"
+        target_weight: 0.3333  # 33.33%
+        security_type: "STK"
+        exchange: "SMART"
+        currency: "USD"
+
+# Account to Model Portfolio Mappings
+# Add your account mappings here
+account_mappings:
+  # Example:
+  # "DU123456": "GTAA"
+  # "DU789012": "GTAA"
+
+# Rebalancing Settings
+rebalancing_settings:
+  # Minimum weight threshold for Day 1 orders (5%)
+  day_1_min_weight_threshold: 0.05
+  
+  # Weight difference threshold to trigger rebalancing (1%)
+  rebalance_threshold: 0.01
+  
+  # Default order settings
+  default_exchange: "SMART"
+  default_currency: "USD"
+  default_time_in_force: "DAY"
+  
+  # Order type settings
+  day_1_order_type: "MOC"  # Market on Close
+  day_2_order_type: "LMT"  # Limit Order
+  
+  # Price management
+  use_price_mgmt_algo: true
+  
+  # Basket tag format
+  basket_tag_format: "EX_{date}_{sequence}"  # e.g., EX_20250908_1

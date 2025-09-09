@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..models.portfolio import PortfolioSnapshot
-from ..models.model_portfolio import ModelPortfolio, ModelPortfolioManager, calculate_rebalancing_orders
+from ..models.model_portfolio import ModelPortfolio
 from ..utils.exceptions import SimpleOrderManagementPlatformError
 
 

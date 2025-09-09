@@ -1,0 +1,4 @@
+#!/bin/bash
+# Rebalancing Calculation Wrapper Script
+
+python3 -m simple_order_management_platform.cli calculate-rebalancing "$@"

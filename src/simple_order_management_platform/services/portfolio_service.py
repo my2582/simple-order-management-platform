@@ -76,8 +76,8 @@ class PortfolioService:
                 all_portfolio_items = self.ib.portfolio()
                 account_portfolio = [item for item in all_portfolio_items if item.account == account_id]
                 
-                # Wait for data to be received
-                self.ib.sleep(1)
+                # Optimized wait time to reduce timeout risk
+                self.ib.sleep(0.5)
                 
                 # Check if we got meaningful data
                 has_market_values = any(
@@ -97,14 +97,28 @@ class PortfolioService:
             # Fallback to positions() if portfolio() fails or gives no market values
             logger.info(f"Falling back to positions() method for account {account_id}")
             
-            all_positions = self.ib.positions()
-            account_positions = [pos for pos in all_positions if pos.account == account_id]
-            
-            # Optimized wait time to reduce timeout risk (0.5s instead of 1s)
-            self.ib.sleep(0.5)
-            
-            logger.info(f"Retrieved {len(account_positions)} position items for account {account_id} (fallback method)")
-            return account_positions
+            # Optimized positions() method with timeout protection
+            try:
+                # Get all positions (this is the most reliable method)
+                all_positions = self.ib.positions()
+                
+                # Filter by account immediately to reduce processing
+                account_positions = [pos for pos in all_positions if pos.account == account_id]
+                
+                # Minimal wait time to ensure data is received
+                self.ib.sleep(0.5)
+                
+                logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
+                return account_positions
+                
+            except Exception as pos_error:
+                logger.warning(f"Direct positions() call failed: {pos_error}")
+                # Final fallback: try with longer wait
+                self.ib.sleep(2)
+                all_positions = self.ib.positions()
+                account_positions = [pos for pos in all_positions if pos.account == account_id]
+                logger.info(f"Retrieved {len(account_positions)} positions for account {account_id} (final fallback)")
+                return account_positions
             
         except Exception as e:
             logger.error(f"Error retrieving portfolio for account {account_id}: {e}")

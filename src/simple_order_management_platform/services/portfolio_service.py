@@ -53,13 +53,13 @@ class PortfolioService:
             raise SimpleOrderManagementPlatformError(f"Failed to get accounts: {e}")
     
     def get_account_portfolio(self, account_id: str) -> List:
-        """Get portfolio for specific account.
+        """Get portfolio for specific account using PortfolioItem objects.
         
         Args:
             account_id: Account ID to get portfolio for
             
         Returns:
-            List of Position objects from ib_insync
+            List of PortfolioItem objects from ib_insync with base currency values
             
         Raises:
             SimpleOrderManagementPlatformError: If unable to retrieve portfolio
@@ -67,31 +67,19 @@ class PortfolioService:
         try:
             logger.info(f"Requesting portfolio for account: {account_id}")
             
-            # Use positions() method with timeout protection
-            logger.debug(f"Using positions() method with optimized settings")
+            # Use ib.portfolio() to get PortfolioItem objects with base currency values
+            # This is critical for accurate weight calculations as it provides values in account's base currency
+            logger.debug(f"Using portfolio() method to get base currency values with optimizations")
             
-            # Request positions with explicit account filtering to minimize data transfer
-            try:
-                # Get all positions (this is the most reliable method)
-                all_positions = self.ib.positions()
-                
-                # Filter by account immediately to reduce processing
-                account_positions = [pos for pos in all_positions if pos.account == account_id]
-                
-                # Minimal wait time to ensure data is received
-                self.ib.sleep(0.5)
-                
-                logger.info(f"Retrieved {len(account_positions)} positions for account {account_id}")
-                return account_positions
-                
-            except Exception as pos_error:
-                logger.warning(f"Direct positions() call failed: {pos_error}")
-                # Fallback: try with longer wait
-                self.ib.sleep(2)
-                all_positions = self.ib.positions()
-                account_positions = [pos for pos in all_positions if pos.account == account_id]
-                logger.info(f"Retrieved {len(account_positions)} positions for account {account_id} (fallback)")
-                return account_positions
+            # Get all portfolio items and filter by account
+            all_portfolio_items = self.ib.portfolio()
+            account_portfolio = [item for item in all_portfolio_items if item.account == account_id]
+            
+            # Optimized wait time to reduce timeout risk (0.5s instead of 1s)
+            self.ib.sleep(0.5)
+            
+            logger.info(f"Retrieved {len(account_portfolio)} portfolio items for account {account_id}")
+            return account_portfolio
             
         except Exception as e:
             logger.error(f"Error retrieving portfolio for account {account_id}: {e}")
@@ -100,13 +88,13 @@ class PortfolioService:
             )
     
     def get_account_summary(self, account_id: str) -> Dict[str, Any]:
-        """Get account summary information.
+        """Get account summary information in base currency.
         
         Args:
             account_id: Account ID to get summary for
             
         Returns:
-            Dictionary with account summary data
+            Dictionary with account summary data in account's base currency
             
         Raises:
             SimpleOrderManagementPlatformError: If unable to retrieve account summary
@@ -114,69 +102,85 @@ class PortfolioService:
         try:
             logger.info(f"Requesting account summary for: {account_id}")
             
-            # REVERT TO ORIGINAL: Use accountSummary() as it provides structured data
-            # IB Gateway Read-Only setting will protect us from write operations
-            logger.debug(f"Using accountSummary() method (original working approach)")
+            # Use reqAccountSummary() with '$LEDGER' group to get base currency values
+            # This ensures all values are converted to the account's base currency (SGD in this case)
+            logger.debug(f"Using reqAccountSummary() with $LEDGER group for base currency values")
             
-            # Define the tags we want to retrieve  
+            # Define the tags we want to retrieve in base currency  
             tags = [
                 'NetLiquidation', 'TotalCashValue', 'SettledCash', 'AccruedCash',
                 'BuyingPower', 'EquityWithLoanValue', 'GrossPositionValue',
                 'UnrealizedPnL', 'RealizedPnL', 'AccountType'
             ]
             
-            # Request account summary (ORIGINAL METHOD THAT WORKED)
-            summary_items = self.ib.accountSummary(account_id)
+            # Request account summary using $LEDGER group for base currency conversion
+            summary_items = self.ib.reqAccountSummary(group='$LEDGER', tags=','.join(tags))
             
             # Wait for data
-            self.ib.sleep(1)
+            self.ib.sleep(2)  # Extra time to ensure all data is received
             
-            # Convert to dictionary
+            # Convert to dictionary, filtering for the specific account
             summary_dict = {}
             for item in summary_items:
                 if item.account == account_id:
                     summary_dict[item.tag] = item.value
+                    logger.debug(f"Account {account_id} - {item.tag}: {item.value} {item.currency}")
                     
-            logger.info(f"Retrieved account summary for {account_id}: {len(summary_dict)} items")
+            logger.info(f"Retrieved account summary for {account_id}: {len(summary_dict)} items in base currency")
             return summary_dict
             
         except Exception as e:
             logger.error(f"Error retrieving account summary for {account_id}: {e}")
-            raise SimpleOrderManagementPlatformError(
-                f"Failed to get account summary for {account_id}: {e}"
-            )
+            # Fallback to original method if reqAccountSummary fails
+            try:
+                logger.warning(f"Falling back to original accountSummary() method for {account_id}")
+                summary_items = self.ib.accountSummary(account_id)
+                self.ib.sleep(1)
+                
+                summary_dict = {}
+                for item in summary_items:
+                    if item.account == account_id:
+                        summary_dict[item.tag] = item.value
+                        
+                logger.info(f"Retrieved account summary (fallback) for {account_id}: {len(summary_dict)} items")
+                return summary_dict
+            except Exception as fallback_e:
+                logger.error(f"Fallback method also failed for {account_id}: {fallback_e}")
+                raise SimpleOrderManagementPlatformError(
+                    f"Failed to get account summary for {account_id}: {e}, fallback: {fallback_e}"
+                )
     
-    def _convert_ib_position_to_position(self, ib_position, account_id: str) -> Position:
-        """Convert ib_insync Position object to Position model.
+    def _convert_ib_portfolio_item_to_position(self, ib_portfolio_item, account_id: str) -> Position:
+        """Convert ib_insync PortfolioItem object to Position model.
         
         Args:
-            ib_position: ib_insync Position object  
+            ib_portfolio_item: ib_insync PortfolioItem object with base currency values
             account_id: Account ID for this position
             
         Returns:
             Position model object
         """
         try:
-            contract = ib_position.contract
+            contract = ib_portfolio_item.contract
             
-            # Position objects have marketPrice and marketValue (unlike Portfolio objects)
-            # This is why the original method worked better!
-            # Note: All values here are already in the account's base currency (SGD)
+            # PortfolioItem objects provide marketPrice and marketValue in account's base currency
+            # This ensures accurate weight calculations across different instrument currencies
+>>>>>>> 9546905 (Fix currency conversion issue and add Amt_Matrix sheet)
             
             market_price = None
             market_value = None
             
-            # Method 1: Use Position object's built-in marketPrice if available
-            if hasattr(ib_position, 'marketPrice') and ib_position.marketPrice:
-                market_price = ib_position.marketPrice
-                logger.debug(f"Using Position marketPrice for {contract.symbol}: {market_price}")
+            # Method 1: Use PortfolioItem's built-in marketPrice (in base currency)
+            if hasattr(ib_portfolio_item, 'marketPrice') and ib_portfolio_item.marketPrice:
+                market_price = ib_portfolio_item.marketPrice
+                logger.debug(f"Using PortfolioItem marketPrice for {contract.symbol}: {market_price}")
             
-            # Method 2: Use Position object's built-in marketValue if available  
-            if hasattr(ib_position, 'marketValue') and ib_position.marketValue:
-                market_value = ib_position.marketValue
-                logger.debug(f"Using Position marketValue for {contract.symbol}: {market_value}")
+            # Method 2: Use PortfolioItem's built-in marketValue (in base currency)
+            if hasattr(ib_portfolio_item, 'marketValue') and ib_portfolio_item.marketValue:
+                market_value = ib_portfolio_item.marketValue
+                logger.debug(f"Using PortfolioItem marketValue for {contract.symbol}: {market_value}")
             
-            # Method 3: Try cached prices if configured
+            # Method 3: Try cached prices if configured (only as fallback)
             if not market_price and self.use_cached_prices:
                 try:
                     from ..services.market_data_service import market_data_service
@@ -184,16 +188,17 @@ class PortfolioService:
                     if cached_price_data:
                         market_price = cached_price_data['close_price']
                         logger.debug(f"Using cached price for {contract.symbol}: {market_price}")
+                        # Note: cached price may not be in base currency - this is why PortfolioItem is preferred
                 except Exception as e:
                     logger.debug(f"Could not get cached price for {contract.symbol}: {e}")
             
-            # Method 4: Fallback to avgCost if no other price available
-            if not market_price and hasattr(ib_position, 'avgCost') and ib_position.avgCost:
-                market_price = ib_position.avgCost
-                logger.debug(f"Using avgCost as market price for {contract.symbol}: {market_price}")
+            # Method 4: Fallback to averageCost if no other price available  
+            if not market_price and hasattr(ib_portfolio_item, 'averageCost') and ib_portfolio_item.averageCost:
+                market_price = ib_portfolio_item.averageCost
+                logger.debug(f"Using averageCost as market price for {contract.symbol}: {market_price}")
                 
-            # Calculate market value if not already available
-            if not market_value and market_price and ib_position.position:
+            # Calculate market value if not already available (should not be needed with PortfolioItem)
+            if not market_value and market_price and ib_portfolio_item.position:
                 multiplier = getattr(contract, 'multiplier', 1)
                 if multiplier and multiplier != '':
                     try:
@@ -203,7 +208,7 @@ class PortfolioService:
                 else:
                     multiplier = 1
                     
-                market_value = Decimal(str(market_price)) * Decimal(str(ib_position.position)) * Decimal(str(multiplier))
+                market_value = Decimal(str(market_price)) * Decimal(str(ib_portfolio_item.position)) * Decimal(str(multiplier))
             
             # Safely handle None and NaN values
             def safe_decimal(value):
@@ -222,12 +227,12 @@ class PortfolioService:
                 exchange=contract.exchange or '',
                 currency=contract.currency or 'USD',
                 sec_type=contract.secType or 'STK',
-                position=Decimal(str(ib_position.position)),
+                position=Decimal(str(ib_portfolio_item.position)),
                 market_price=safe_decimal(market_price),
                 market_value=safe_decimal(market_value),
-                avg_cost=safe_decimal(ib_position.avgCost),
-                unrealized_pnl=safe_decimal(getattr(ib_position, 'unrealizedPNL', None)),  # Position objects have PnL
-                realized_pnl=safe_decimal(getattr(ib_position, 'realizedPNL', None)),
+                avg_cost=safe_decimal(ib_portfolio_item.averageCost),
+                unrealized_pnl=safe_decimal(getattr(ib_portfolio_item, 'unrealizedPNL', None)),  # PortfolioItem objects have PnL
+                realized_pnl=safe_decimal(getattr(ib_portfolio_item, 'realizedPNL', None)),
                 local_symbol=getattr(contract, 'localSymbol', None),
                 multiplier=int(getattr(contract, 'multiplier', 1)) if getattr(contract, 'multiplier', '') != '' else None,
                 last_trade_date=getattr(contract, 'lastTradeDateOrContractMonth', None),
@@ -236,9 +241,9 @@ class PortfolioService:
             return position
             
         except Exception as e:
-            logger.error(f"Error converting IB position to Position model: {e}")
-            logger.error(f"IB Position data: {ib_position}")
-            raise SimpleOrderManagementPlatformError(f"Failed to convert position data: {e}")
+            logger.error(f"Error converting IB PortfolioItem to Position model: {e}")
+            logger.error(f"IB PortfolioItem data: {ib_portfolio_item}")
+            raise SimpleOrderManagementPlatformError(f"Failed to convert portfolio item data: {e}")
     
     def _convert_account_summary_dict_to_model(self, summary_dict: Dict[str, Any], account_id: str) -> AccountSummary:
         """Convert account summary dictionary to AccountSummary model.
@@ -260,7 +265,7 @@ class PortfolioService:
         return AccountSummary(
             account_id=account_id,
             account_type=summary_dict.get('AccountType'),
-            currency='USD',  # Default, could be extracted from currency-specific tags
+            currency='SGD',  # Base currency (Singapore Dollar) as mentioned in requirements
             net_liquidation=safe_decimal(summary_dict.get('NetLiquidation')),
             total_cash_value=safe_decimal(summary_dict.get('TotalCashValue')),
             settled_cash=safe_decimal(summary_dict.get('SettledCash')),
@@ -288,17 +293,23 @@ class PortfolioService:
             logger.info(f"Downloading portfolio snapshot for account: {account_id} using ib_insync")
             
             # Get portfolio positions for this account
-            ib_positions = self.get_account_portfolio(account_id)
+            ib_portfolio = self.get_account_portfolio(account_id)
             
-            # Convert IB positions to Position models
+            # Convert PortfolioItem objects to Position objects
             positions = []
-            for ib_pos in ib_positions:
+            cached_price_count = 0
+            for ib_portfolio_item in ib_portfolio:
                 try:
-                    position = self._convert_ib_position_to_position(ib_pos, account_id)
+                    position = self._convert_ib_portfolio_item_to_position(ib_portfolio_item, account_id)
+                    
+                    # Cached prices are already applied in _convert_ib_portfolio_item_to_position
+                    if self.use_cached_prices and position.market_price:
+                        cached_price_count += 1
+                    
                     positions.append(position)
                     logger.debug(f"Converted position: {position.symbol} = {position.market_value}")
                 except Exception as e:
-                    logger.warning(f"Failed to convert position for {ib_pos}: {e}")
+                    logger.warning(f"Failed to convert portfolio item {ib_portfolio_item}: {e}")
                     continue
             
             # Get account summary

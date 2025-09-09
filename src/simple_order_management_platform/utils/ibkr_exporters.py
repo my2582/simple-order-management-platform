@@ -69,11 +69,11 @@ class IBKRStandardExporter:
             summary_df = self._create_summary_sheet(multi_portfolio)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
-            # Create Matrix sheet (positions matrix with asset classes)
+            # Create Matrix sheet (positions matrix with asset classes) - shows weights
             matrix_df = self._create_matrix_sheet(multi_portfolio)
             matrix_df.to_excel(writer, sheet_name='Matrix', index=False)
             
-            # Create Amt_Matrix sheet (same format as Matrix but with amounts instead of weights)
+            # Create Amt_Matrix sheet (same format as Matrix but with base currency amounts)
             amt_matrix_df = self._create_amt_matrix_sheet(multi_portfolio)
             amt_matrix_df.to_excel(writer, sheet_name='Amt_Matrix', index=False)
             
@@ -242,7 +242,7 @@ class IBKRStandardExporter:
         asset_class_cols = 4  # E-H columns (Total, Equity, Bond, Gold)
         asset_weight_cols = 1 + len(remaining_symbols)  # Total + individual symbols
         
-        header_row1 = ['Portfolio Matrix', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
+        header_row1 = ['Portfolio Matrix (Base: S$)', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
         
         # Add empty cells for remaining asset weight columns
         header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
@@ -278,7 +278,7 @@ class IBKRStandardExporter:
         matrix_rows.append(asset_class_row)
         
         # Row 5: Column headers
-        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash %', 'Total', 'Equity', 'Bond', 'Gold']
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total', 'Equity', 'Bond', 'Gold']
         
         # Add symbol codes as column headers with Total at the beginning
         if remaining_symbols:
@@ -357,7 +357,7 @@ class IBKRStandardExporter:
         return df
     
     def _create_amt_matrix_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
-        """Create amount matrix sheet - same format as Matrix but showing amounts instead of weights."""
+        """Create amount matrix sheet - same format as Matrix but showing base currency amounts instead of weights."""
         
         # Collect all unique symbols and their metadata (same as Matrix)
         all_symbols = set()
@@ -383,7 +383,7 @@ class IBKRStandardExporter:
                 }
                 
                 positions_dict[symbol] = {
-                    'market_value': pos.get('Market_Value', 0)  # Use market value directly
+                    'market_value': pos.get('Market_Value', 0)  # Use market value in base currency
                 }
             
             # Calculate account summary values
@@ -423,7 +423,7 @@ class IBKRStandardExporter:
         for asset_class in sorted_asset_classes:
             remaining_symbols.extend(asset_classes[asset_class])
         
-        header_row1 = ['Portfolio Matrix (Amounts)', '', '', '', 'Asset class amount', '', '', '', 'Asset amount']
+        header_row1 = ['Portfolio Matrix (S$)', '', '', '', 'Asset class amount (S$)', '', '', '', 'Asset amount (S$)']
         
         # Add empty cells for remaining asset amount columns
         header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
@@ -459,19 +459,27 @@ class IBKRStandardExporter:
         matrix_rows.append(asset_class_row)
         
         # Row 5: Column headers
-        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash Amount', 'Total', 'Equity', 'Bond', 'Gold']
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash Amount (S$)', 'Total (S$)', 'Equity (S$)', 'Bond (S$)', 'Gold (S$)']
+        
+        # Add symbol codes as column headers with Total at the beginning  
+        if remaining_symbols:
+            column_headers.append('Total (S$)')  # Total for asset amount section
+            column_headers.extend(remaining_symbols)
+=======
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total (S$)', 'Equity (S$)', 'Bond (S$)', 'Gold (S$)']
         
         # Add symbol codes as column headers with Total at the beginning
         if remaining_symbols:
-            column_headers.append('Total')  # Total for asset amount section
-            column_headers.extend(remaining_symbols)
+            column_headers.append('Total (S$)')  # Total for asset amount section
+            column_headers.extend([f'{symbol} (S$)' for symbol in remaining_symbols])
+>>>>>>> 9546905 (Fix currency conversion issue and add Amt_Matrix sheet)
         matrix_rows.append(column_headers)
         
         # Data rows: One row per account
         for account_id in sorted(account_data.keys()):
             data = account_data[account_id]
             
-            # Calculate asset class amounts
+            # Calculate asset class amounts in SGD
             equity_amount = 0
             bond_amount = 0 
             gold_amount = 0
@@ -501,13 +509,13 @@ class IBKRStandardExporter:
             # Build account row
             account_row = [
                 account_id,
-                data['nlv'],  # Net Liquidation Value
+                data['nlv'],  # Net Liquidation Value in SGD
                 (data['gross_position_value'] / data['nlv']) if data['nlv'] != 0 else 0,  # Ratio
-                data['cash'],  # Cash amount
+                data['cash'],  # Cash amount in SGD
                 equity_amount + bond_amount + gold_amount,  # Total asset class amounts
-                equity_amount,  # Equity amount
-                bond_amount,    # Bond amount
-                gold_amount     # Gold amount
+                equity_amount,  # Equity amount in SGD
+                bond_amount,    # Bond amount in SGD
+                gold_amount     # Gold amount in SGD
             ]
             
             # Add individual symbol amounts with total in first asset amount column

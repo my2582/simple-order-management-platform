@@ -524,6 +524,96 @@ def download_positions_ibkr(
 
 
 @app.command()
+def holdings(
+    accounts: Optional[List[str]] = typer.Option(
+        None, "--accounts", "-a",
+        help="Specific account IDs to download (comma-separated). If not provided, downloads all accounts."
+    ),
+    output_filename: Optional[str] = typer.Option(
+        None, "--output", "-o",
+        help="Output Excel filename. Default: auto-generated with timestamp"
+    ),
+    # IB connection overrides
+    ib_host: Optional[str] = typer.Option(None, "--ib-host", help="IB host override"),
+    ib_port: Optional[int] = typer.Option(None, "--ib-port", help="IB port override"),
+    ib_client_id: Optional[int] = typer.Option(None, "--ib-client-id", help="IB client ID override"),
+):
+    """Download holdings table in IBKR standard format."""
+    
+    console.print("[bold blue]📊 Starting IBKR holdings table download[/bold blue]")
+
+    try:
+        # Load app configuration
+        app_config = config_loader.load_app_config()
+        
+        # Get IB connection parameters with alternative ports
+        host, port, client_id, alternative_ports = get_ib_connection_params(app_config, ib_host, ib_port, ib_client_id)
+
+        # Execute download with IB connection
+        with IBConnector(host=host, port=port, client_id=client_id, alternative_ports=alternative_ports) as connector:
+            provider = IBProvider(connector)
+            
+            console.print("[green]📈 Using live market data from IBKR[/green]")
+            portfolio_service = PortfolioService(provider, use_cached_prices=False)
+
+            with console.status("[bold green]Downloading holdings data..."):
+                # Parse account list if provided
+                account_list = None
+                if accounts:
+                    if len(accounts) == 1 and ',' in accounts[0]:
+                        # Handle comma-separated string
+                        account_list = [acc.strip() for acc in accounts[0].split(',')]
+                    else:
+                        account_list = accounts
+                
+                multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+            
+            if not multi_portfolio.snapshots:
+                console.print("[yellow]⚠️ No portfolio data downloaded[/yellow]")
+                raise typer.Exit(0)
+
+            # Export results to holdings table format
+            from .utils.holdings_exporter import export_holdings_table
+            output_path = export_holdings_table(
+                multi_portfolio=multi_portfolio,
+                output_filename=output_filename,
+                portfolio_service=portfolio_service
+            )
+            
+            # Show summary
+            combined_summary = multi_portfolio.get_combined_summary()
+            
+            console.print(f"[green]✅ Holdings table download completed:[/green]")
+            console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
+            console.print(f"  • Total positions (including zero): {sum(len(s.positions) for s in multi_portfolio.snapshots)}")
+            console.print(f"  • Active positions (non-zero): {combined_summary['total_positions']}")
+            console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
+            console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+            
+            # Show per-account summary
+            console.print(f"\n[bold blue]📋 Per-Account Holdings Summary:[/bold blue]")
+            for snapshot in multi_portfolio.snapshots:
+                account_summary = snapshot.get_positions_summary()
+                total_positions = len(snapshot.positions)
+                active_positions = len([p for p in snapshot.positions if p.position != 0])
+                
+                console.print(f"  • Account {snapshot.account_id}: "
+                             f"{total_positions} total positions ({active_positions} active), "
+                             f"${account_summary['total_value']:,.2f} total value")
+
+    except ConnectionError as e:
+        console.print(f"[red]❌ Connection Error: {e}[/red]")
+        raise typer.Exit(1)
+    except SimpleOrderManagementPlatformError as e:
+        console.print(f"[red]❌ Platform Error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]❌ Unexpected error: {e}[/red]")
+        logger.exception("Unexpected error during holdings download")
+        raise typer.Exit(1)
+
+
+@app.command()
 def run_daily_update(
     accounts: Optional[List[str]] = typer.Option(
         None, "--accounts", "-a",

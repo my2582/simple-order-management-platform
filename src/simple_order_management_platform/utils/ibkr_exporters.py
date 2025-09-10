@@ -28,7 +28,8 @@ class IBKRStandardExporter:
         self,
         multi_portfolio: MultiAccountPortfolio,
         output_filename: Optional[str] = None,
-        include_metadata: bool = True
+        include_metadata: bool = True,
+        portfolio_service: Optional[Any] = None
     ) -> Path:
         """
         Export portfolio data in IBKR standard format.
@@ -66,7 +67,7 @@ class IBKRStandardExporter:
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             
             # Create Summary sheet (IBKR account summary format)
-            summary_df = self._create_summary_sheet(multi_portfolio)
+            summary_df = self._create_summary_sheet(multi_portfolio, portfolio_service)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
             # Create Matrix sheet (positions matrix with asset classes) - shows weights
@@ -95,13 +96,15 @@ class IBKRStandardExporter:
         
         return output_path
     
-    def _create_summary_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
+    def _create_summary_sheet(self, multi_portfolio: MultiAccountPortfolio, portfolio_service: Optional[Any] = None) -> pd.DataFrame:
         """Create enhanced IBKR standard summary sheet with better formatting."""
         
         summary_data = []
         total_nlv = 0
         total_gross_position = 0
         total_cash = 0
+        total_current_available = 0
+        total_excess_liquidity = 0
         
         for snapshot in multi_portfolio.snapshots:
             account_summary = snapshot.get_positions_summary()
@@ -112,12 +115,35 @@ class IBKRStandardExporter:
             # Calculate Securities Gross Position Value using proper IB API value
             cash_value = 0
             gross_position_value = 0
+            current_available_funds = 0
+            current_excess_liquidity = 0
             
             if snapshot.account_summary:
                 cash_value = float(snapshot.account_summary.total_cash_value or 0)
                 # Use the proper GrossPositionValue from IB API instead of manual calculation
                 # This prevents including master account values
                 gross_position_value = float(snapshot.account_summary.gross_position_value or 0)
+                
+                # Get proper IBKR fund values from account summary
+                # These should be retrieved by portfolio_service.get_account_summary()
+                account_dict = snapshot.account_summary.__dict__ if hasattr(snapshot.account_summary, '__dict__') else {}
+                current_available_funds = float(getattr(snapshot.account_summary, 'current_available_funds', 0) or 0)
+                current_excess_liquidity = float(getattr(snapshot.account_summary, 'current_excess_liquidity', 0) or 0)
+                
+                # Fallback calculation if not available from IBKR
+                if current_available_funds == 0:
+                    current_available_funds = cash_value + (nlv * 0.25)  # Conservative estimate
+                if current_excess_liquidity == 0:
+                    current_excess_liquidity = cash_value * 0.95  # Conservative estimate
+            
+            # Get Account Alias using ib_insync
+            account_alias = None
+            if portfolio_service:
+                try:
+                    account_alias = portfolio_service.get_account_alias(snapshot.account_id)
+                except Exception as e:
+                    logger.debug(f"Could not get account alias for {snapshot.account_id}: {e}")
+                    account_alias = None
             
             # Calculate ratios
             gross_nlv_ratio = gross_position_value / nlv if nlv != 0 else 0
@@ -131,18 +157,22 @@ class IBKRStandardExporter:
             total_nlv += nlv
             total_gross_position += gross_position_value
             total_cash += cash_value
+            total_current_available += current_available_funds
+            total_excess_liquidity += current_excess_liquidity
             
+            # Create summary data with proper column order
             summary_data.append({
                 'Account ID': snapshot.account_id,
+                'Account Alias': account_alias or '',  # New column with ib_insync data
                 'Net Liquidation Value': nlv,
                 'Total Cash Value': cash_value,
+                'Current Available Funds': current_available_funds,  # Moved right after Total Cash Value
                 'Securities Gross Position Value': gross_position_value,
                 'Gross/NLV': gross_nlv_ratio,
                 'Cash %': cash_percentage,
                 'Buying Power': buying_power,
                 'Equity w/ Loan Value': equity_with_loan,
-                'Available Funds': cash_value + (nlv * 0.25),  # More realistic available funds
-                'Excess Liquidity': cash_value * 0.95,  # Conservative excess liquidity
+                'Current Excess Liquidity': current_excess_liquidity,  # Updated field name
                 'Unrealized PnL': 0,  # Placeholder - will be enhanced with real data
                 'Realized PnL': 0     # Placeholder - will be enhanced with real data
             })
@@ -154,15 +184,16 @@ class IBKRStandardExporter:
             
             summary_data.append({
                 'Account ID': 'TOTAL',
+                'Account Alias': '',  # Empty for total row
                 'Net Liquidation Value': total_nlv,
                 'Total Cash Value': total_cash,
+                'Current Available Funds': total_current_available,
                 'Securities Gross Position Value': total_gross_position,
                 'Gross/NLV': total_gross_position / total_nlv if total_nlv != 0 else 0,
                 'Cash %': total_cash / total_nlv if total_nlv != 0 else 0,
                 'Buying Power': total_buying_power,
                 'Equity w/ Loan Value': total_equity_with_loan,
-                'Available Funds': total_cash + (total_nlv * 0.25),
-                'Excess Liquidity': total_cash * 0.95,
+                'Current Excess Liquidity': total_excess_liquidity,
                 'Unrealized PnL': 0,
                 'Realized PnL': 0
             })
@@ -839,10 +870,13 @@ class IBKRStandardExporter:
             )
     
     def _format_summary_sheet(self, sheet, header_font, data_font, header_fill, thin_border):
-        """Apply formatting to Summary sheet."""
+        """Apply formatting to Summary sheet with freeze panes at B2."""
         
         if sheet.max_row == 0:
             return
+        
+        # Set freeze panes at B2 (freeze first row and first column)
+        sheet.freeze_panes = 'B2'
             
         # Format headers
         for col in range(1, sheet.max_column + 1):
@@ -919,11 +953,13 @@ ibkr_exporter = IBKRStandardExporter()
 def export_ibkr_portfolio_report(
     multi_portfolio: MultiAccountPortfolio,
     output_filename: Optional[str] = None,
-    include_metadata: bool = True
+    include_metadata: bool = True,
+    portfolio_service: Optional[Any] = None
 ) -> Path:
     """Convenience function to export IBKR standard portfolio report."""
     return ibkr_exporter.export_portfolio_report(
         multi_portfolio=multi_portfolio,
         output_filename=output_filename,
-        include_metadata=include_metadata
+        include_metadata=include_metadata,
+        portfolio_service=portfolio_service
     )

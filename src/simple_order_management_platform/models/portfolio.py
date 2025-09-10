@@ -124,6 +124,10 @@ class AccountSummary(BaseModel):
     equity_with_loan_value: Optional[Decimal] = None
     gross_position_value: Optional[Decimal] = None
     
+    # Funds information (proper IBKR field names)
+    current_available_funds: Optional[Decimal] = None
+    current_excess_liquidity: Optional[Decimal] = None
+    
     # PnL information
     unrealized_pnl: Optional[Decimal] = None
     realized_pnl: Optional[Decimal] = None

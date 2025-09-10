@@ -52,6 +52,55 @@ class PortfolioService:
             logger.error(f"Error retrieving managed accounts: {e}")
             raise SimpleOrderManagementPlatformError(f"Failed to get accounts: {e}")
     
+    def get_account_alias(self, account_id: str) -> Optional[str]:
+        """Get account alias using ib_insync.
+        
+        Args:
+            account_id: Account ID to get alias for
+            
+        Returns:
+            Account alias if available, None otherwise
+        """
+        try:
+            logger.debug(f"Requesting account alias for: {account_id}")
+            
+            # Try to get account information using accountSummary with AccountAlias tag
+            try:
+                summary_items = self.ib.accountSummary(account_id, tags="AccountAlias")
+                self.ib.sleep(0.5)  # Short wait for data
+                
+                for item in summary_items:
+                    if item.account == account_id and item.tag == 'AccountAlias':
+                        alias = item.value
+                        logger.debug(f"Found account alias for {account_id}: {alias}")
+                        return alias if alias and alias.strip() else None
+                        
+            except Exception as e:
+                logger.debug(f"AccountAlias tag failed for {account_id}: {e}")
+            
+            # Fallback: try to get Family Code which sometimes contains alias info
+            try:
+                summary_items = self.ib.accountSummary(account_id, tags="FamilyCode")
+                self.ib.sleep(0.5)
+                
+                for item in summary_items:
+                    if item.account == account_id and item.tag == 'FamilyCode':
+                        family_code = item.value
+                        if family_code and family_code.strip() and family_code != account_id:
+                            logger.debug(f"Using FamilyCode as alias for {account_id}: {family_code}")
+                            return family_code
+                            
+            except Exception as e:
+                logger.debug(f"FamilyCode fallback failed for {account_id}: {e}")
+            
+            # If no alias found, return None
+            logger.debug(f"No alias found for account {account_id}")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error retrieving account alias for {account_id}: {e}")
+            return None
+    
     def get_account_portfolio(self, account_id: str) -> List:
         """Get portfolio for specific account using PortfolioItem objects with fallback.
         
@@ -145,11 +194,12 @@ class PortfolioService:
             # This ensures all values are converted to the account's base currency (SGD in this case)
             logger.debug(f"Using reqAccountSummary() with $LEDGER group for base currency values")
             
-            # Define the tags we want to retrieve in base currency  
+            # Define the tags we want to retrieve in base currency including funds information
             tags = [
                 'NetLiquidation', 'TotalCashValue', 'SettledCash', 'AccruedCash',
                 'BuyingPower', 'EquityWithLoanValue', 'GrossPositionValue',
-                'UnrealizedPnL', 'RealizedPnL', 'AccountType'
+                'UnrealizedPnL', 'RealizedPnL', 'AccountType',
+                'CurrentAvailableFunds', 'CurrentExcessLiquidity'  # Added proper IBKR field names
             ]
             
             # Request account summary using $LEDGER group for base currency conversion
@@ -246,6 +296,16 @@ class PortfolioService:
                         multiplier = 1
                 else:
                     multiplier = 1
+                
+                # Special handling for MTN (Micro Ultra 10-year Treasury Note)
+                # MTN should have multiplier of 100, not 10,000
+                if contract.symbol == 'MTN' and contract.secType == 'FUT':
+                    if multiplier == 10000:
+                        logger.warning(f"MTN multiplier correction: changing from {multiplier} to 100")
+                        multiplier = 100
+                    elif multiplier != 100:
+                        logger.warning(f"MTN unexpected multiplier {multiplier}, using 100")
+                        multiplier = 100
                     
                 calculated_value = Decimal(str(market_price)) * Decimal(str(ib_portfolio_item.position)) * Decimal(str(multiplier))
                 if calculated_value != 0:  # Only use calculated value if it's not zero
@@ -262,6 +322,15 @@ class PortfolioService:
                         multiplier = 1
                 else:
                     multiplier = 1
+                
+                # Special handling for MTN (Micro Ultra 10-year Treasury Note)  
+                if contract.symbol == 'MTN' and contract.secType == 'FUT':
+                    if multiplier == 10000:
+                        logger.warning(f"MTN multiplier correction in fallback: changing from {multiplier} to 100")
+                        multiplier = 100
+                    elif multiplier != 100:
+                        logger.warning(f"MTN unexpected multiplier in fallback {multiplier}, using 100")
+                        multiplier = 100
                     
                 fallback_value = Decimal(str(ib_portfolio_item.averageCost)) * Decimal(str(ib_portfolio_item.position)) * Decimal(str(multiplier))
                 if fallback_value != 0:
@@ -449,6 +518,8 @@ class PortfolioService:
             buying_power=safe_decimal(summary_dict.get('BuyingPower')),
             equity_with_loan_value=safe_decimal(summary_dict.get('EquityWithLoanValue')),
             gross_position_value=safe_decimal(summary_dict.get('GrossPositionValue')),
+            current_available_funds=safe_decimal(summary_dict.get('CurrentAvailableFunds')),
+            current_excess_liquidity=safe_decimal(summary_dict.get('CurrentExcessLiquidity')),
             unrealized_pnl=safe_decimal(summary_dict.get('UnrealizedPnL')),
             realized_pnl=safe_decimal(summary_dict.get('RealizedPnL')),
         )

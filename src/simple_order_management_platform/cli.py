@@ -479,7 +479,8 @@ def download_positions_ibkr(
             output_path = export_ibkr_portfolio_report(
                 multi_portfolio=multi_portfolio,
                 output_filename=output_filename,
-                include_metadata=True
+                include_metadata=True,
+                portfolio_service=portfolio_service  # Pass portfolio service for Account Alias access
             )
             
             # Show summary

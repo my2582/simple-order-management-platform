@@ -567,18 +567,28 @@ def holdings(
                         account_list = accounts
                 
                 multi_portfolio = portfolio_service.download_all_portfolios(account_ids=account_list)
+                
+                # Pre-fetch account aliases before closing connection
+                account_aliases = {}
+                for snapshot in multi_portfolio.snapshots:
+                    try:
+                        alias = portfolio_service.get_account_alias(snapshot.account_id)
+                        account_aliases[snapshot.account_id] = alias
+                    except Exception as e:
+                        logger.debug(f"Could not get account alias for {snapshot.account_id}: {e}")
+                        account_aliases[snapshot.account_id] = None
             
             if not multi_portfolio.snapshots:
                 console.print("[yellow]⚠️ No portfolio data downloaded[/yellow]")
                 raise typer.Exit(0)
 
-            # Export results to holdings table format
-            from .utils.holdings_exporter import export_holdings_table
-            output_path = export_holdings_table(
-                multi_portfolio=multi_portfolio,
-                output_filename=output_filename,
-                portfolio_service=portfolio_service
-            )
+        # Export results to holdings table format (outside with block to ensure connection is closed)
+        from .utils.holdings_exporter import export_holdings_table
+        output_path = export_holdings_table(
+            multi_portfolio=multi_portfolio,
+            output_filename=output_filename,
+            account_aliases=account_aliases  # Pass pre-fetched aliases instead of service
+        )
             
             # Show summary
             combined_summary = multi_portfolio.get_combined_summary()

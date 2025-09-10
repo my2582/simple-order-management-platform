@@ -28,7 +28,8 @@ class HoldingsExporter:
         self,
         multi_portfolio: MultiAccountPortfolio,
         output_filename: Optional[str] = None,
-        portfolio_service: Optional[Any] = None
+        portfolio_service: Optional[Any] = None,
+        account_aliases: Optional[Dict[str, str]] = None
     ) -> Path:
         """
         Export holdings data in IBKR standard holdings table format.
@@ -66,7 +67,7 @@ class HoldingsExporter:
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             
             # Create Holdings sheet
-            holdings_df = self._create_holdings_sheet(multi_portfolio, portfolio_service)
+            holdings_df = self._create_holdings_sheet(multi_portfolio, portfolio_service, account_aliases)
             holdings_df.to_excel(writer, sheet_name='Holdings', index=False)
             
             # Format the sheet
@@ -82,15 +83,17 @@ class HoldingsExporter:
         
         return output_path
     
-    def _create_holdings_sheet(self, multi_portfolio: MultiAccountPortfolio, portfolio_service: Optional[Any] = None) -> pd.DataFrame:
+    def _create_holdings_sheet(self, multi_portfolio: MultiAccountPortfolio, portfolio_service: Optional[Any] = None, account_aliases: Optional[Dict[str, str]] = None) -> pd.DataFrame:
         """Create holdings table sheet matching IBKR standard format."""
         
         holdings_data = []
         
         for snapshot in multi_portfolio.snapshots:
-            # Get Account Alias using ib_insync
+            # Get Account Alias from pre-fetched data or via ib_insync (fallback)
             account_alias = None
-            if portfolio_service:
+            if account_aliases and snapshot.account_id in account_aliases:
+                account_alias = account_aliases[snapshot.account_id]
+            elif portfolio_service:
                 try:
                     account_alias = portfolio_service.get_account_alias(snapshot.account_id)
                 except Exception as e:
@@ -262,11 +265,13 @@ holdings_exporter = HoldingsExporter()
 def export_holdings_table(
     multi_portfolio: MultiAccountPortfolio,
     output_filename: Optional[str] = None,
-    portfolio_service: Optional[Any] = None
+    portfolio_service: Optional[Any] = None,
+    account_aliases: Optional[Dict[str, str]] = None
 ) -> Path:
     """Convenience function to export holdings table."""
     return holdings_exporter.export_holdings_table(
         multi_portfolio=multi_portfolio,
         output_filename=output_filename,
-        portfolio_service=portfolio_service
+        portfolio_service=portfolio_service,
+        account_aliases=account_aliases
     )

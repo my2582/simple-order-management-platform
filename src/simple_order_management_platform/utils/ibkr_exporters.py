@@ -499,14 +499,6 @@ class IBKRStandardExporter:
         if remaining_symbols:
             column_headers.append('Total (S$)')  # Total for asset amount section
             column_headers.extend(remaining_symbols)
-=======
-        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total (S$)', 'Equity (S$)', 'Bond (S$)', 'Gold (S$)']
-        
-        # Add symbol codes as column headers with Total at the beginning
-        if remaining_symbols:
-            column_headers.append('Total (S$)')  # Total for asset amount section
-            column_headers.extend([f'{symbol} (S$)' for symbol in remaining_symbols])
->>>>>>> 9546905 (Fix currency conversion issue and add Amt_Matrix sheet)
         matrix_rows.append(column_headers)
         
         # Data rows: One row per account

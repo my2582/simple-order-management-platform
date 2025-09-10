@@ -254,7 +254,6 @@ class PortfolioService:
             
             # PortfolioItem objects provide marketPrice and marketValue in account's base currency
             # This ensures accurate weight calculations across different instrument currencies
->>>>>>> 9546905 (Fix currency conversion issue and add Amt_Matrix sheet)
             
             market_price = None
             market_value = None

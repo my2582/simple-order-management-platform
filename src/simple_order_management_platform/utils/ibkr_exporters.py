@@ -28,7 +28,8 @@ class IBKRStandardExporter:
         self,
         multi_portfolio: MultiAccountPortfolio,
         output_filename: Optional[str] = None,
-        include_metadata: bool = True
+        include_metadata: bool = True,
+        portfolio_service: Optional[Any] = None
     ) -> Path:
         """
         Export portfolio data in IBKR standard format.
@@ -66,14 +67,14 @@ class IBKRStandardExporter:
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             
             # Create Summary sheet (IBKR account summary format)
-            summary_df = self._create_summary_sheet(multi_portfolio)
+            summary_df = self._create_summary_sheet(multi_portfolio, portfolio_service)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
             
-            # Create Matrix sheet (positions matrix with asset classes)
+            # Create Matrix sheet (positions matrix with asset classes) - shows weights
             matrix_df = self._create_matrix_sheet(multi_portfolio)
             matrix_df.to_excel(writer, sheet_name='Matrix', index=False)
             
-            # Create Amt_Matrix sheet (same format as Matrix but with amounts instead of weights)
+            # Create Amt_Matrix sheet (same format as Matrix but with base currency amounts)
             amt_matrix_df = self._create_amt_matrix_sheet(multi_portfolio)
             amt_matrix_df.to_excel(writer, sheet_name='Amt_Matrix', index=False)
             
@@ -95,13 +96,15 @@ class IBKRStandardExporter:
         
         return output_path
     
-    def _create_summary_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
+    def _create_summary_sheet(self, multi_portfolio: MultiAccountPortfolio, portfolio_service: Optional[Any] = None) -> pd.DataFrame:
         """Create enhanced IBKR standard summary sheet with better formatting."""
         
         summary_data = []
         total_nlv = 0
         total_gross_position = 0
         total_cash = 0
+        total_current_available = 0
+        total_excess_liquidity = 0
         
         for snapshot in multi_portfolio.snapshots:
             account_summary = snapshot.get_positions_summary()
@@ -112,12 +115,35 @@ class IBKRStandardExporter:
             # Calculate Securities Gross Position Value using proper IB API value
             cash_value = 0
             gross_position_value = 0
+            current_available_funds = 0
+            current_excess_liquidity = 0
             
             if snapshot.account_summary:
                 cash_value = float(snapshot.account_summary.total_cash_value or 0)
                 # Use the proper GrossPositionValue from IB API instead of manual calculation
                 # This prevents including master account values
                 gross_position_value = float(snapshot.account_summary.gross_position_value or 0)
+                
+                # Get proper IBKR fund values from account summary
+                # These should be retrieved by portfolio_service.get_account_summary()
+                account_dict = snapshot.account_summary.__dict__ if hasattr(snapshot.account_summary, '__dict__') else {}
+                current_available_funds = float(getattr(snapshot.account_summary, 'current_available_funds', 0) or 0)
+                current_excess_liquidity = float(getattr(snapshot.account_summary, 'current_excess_liquidity', 0) or 0)
+                
+                # Fallback calculation if not available from IBKR
+                if current_available_funds == 0:
+                    current_available_funds = cash_value + (nlv * 0.25)  # Conservative estimate
+                if current_excess_liquidity == 0:
+                    current_excess_liquidity = cash_value * 0.95  # Conservative estimate
+            
+            # Get Account Alias using ib_insync
+            account_alias = None
+            if portfolio_service:
+                try:
+                    account_alias = portfolio_service.get_account_alias(snapshot.account_id)
+                except Exception as e:
+                    logger.debug(f"Could not get account alias for {snapshot.account_id}: {e}")
+                    account_alias = None
             
             # Calculate ratios
             gross_nlv_ratio = gross_position_value / nlv if nlv != 0 else 0
@@ -131,18 +157,22 @@ class IBKRStandardExporter:
             total_nlv += nlv
             total_gross_position += gross_position_value
             total_cash += cash_value
+            total_current_available += current_available_funds
+            total_excess_liquidity += current_excess_liquidity
             
+            # Create summary data with proper column order
             summary_data.append({
                 'Account ID': snapshot.account_id,
+                'Account Alias': account_alias or '',  # New column with ib_insync data
                 'Net Liquidation Value': nlv,
                 'Total Cash Value': cash_value,
+                'Current Available Funds': current_available_funds,  # Moved right after Total Cash Value
                 'Securities Gross Position Value': gross_position_value,
                 'Gross/NLV': gross_nlv_ratio,
                 'Cash %': cash_percentage,
                 'Buying Power': buying_power,
                 'Equity w/ Loan Value': equity_with_loan,
-                'Available Funds': cash_value + (nlv * 0.25),  # More realistic available funds
-                'Excess Liquidity': cash_value * 0.95,  # Conservative excess liquidity
+                'Current Excess Liquidity': current_excess_liquidity,  # Updated field name
                 'Unrealized PnL': 0,  # Placeholder - will be enhanced with real data
                 'Realized PnL': 0     # Placeholder - will be enhanced with real data
             })
@@ -154,15 +184,16 @@ class IBKRStandardExporter:
             
             summary_data.append({
                 'Account ID': 'TOTAL',
+                'Account Alias': '',  # Empty for total row
                 'Net Liquidation Value': total_nlv,
                 'Total Cash Value': total_cash,
+                'Current Available Funds': total_current_available,
                 'Securities Gross Position Value': total_gross_position,
                 'Gross/NLV': total_gross_position / total_nlv if total_nlv != 0 else 0,
                 'Cash %': total_cash / total_nlv if total_nlv != 0 else 0,
                 'Buying Power': total_buying_power,
                 'Equity w/ Loan Value': total_equity_with_loan,
-                'Available Funds': total_cash + (total_nlv * 0.25),
-                'Excess Liquidity': total_cash * 0.95,
+                'Current Excess Liquidity': total_excess_liquidity,
                 'Unrealized PnL': 0,
                 'Realized PnL': 0
             })
@@ -242,7 +273,7 @@ class IBKRStandardExporter:
         asset_class_cols = 4  # E-H columns (Total, Equity, Bond, Gold)
         asset_weight_cols = 1 + len(remaining_symbols)  # Total + individual symbols
         
-        header_row1 = ['Portfolio Matrix', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
+        header_row1 = ['Portfolio Matrix (Base: S$)', '', '', '', 'Asset class weight', '', '', '', 'Asset weight']
         
         # Add empty cells for remaining asset weight columns
         header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
@@ -278,7 +309,7 @@ class IBKRStandardExporter:
         matrix_rows.append(asset_class_row)
         
         # Row 5: Column headers
-        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash %', 'Total', 'Equity', 'Bond', 'Gold']
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total', 'Equity', 'Bond', 'Gold']
         
         # Add symbol codes as column headers with Total at the beginning
         if remaining_symbols:
@@ -298,6 +329,9 @@ class IBKRStandardExporter:
             for symbol, pos_data in data['positions'].items():
                 asset_class = symbol_metadata[symbol]['asset_class'].lower()
                 weight_pct = pos_data['weight']
+                
+                # Debug logging to understand weight calculation issues
+                logger.debug(f"Account {account_id}, Symbol {symbol}: weight_pct={weight_pct}, asset_class={asset_class}")
                 
                 if 'equity' in asset_class or 'etf' in asset_class:
                     equity_weight += weight_pct
@@ -357,7 +391,7 @@ class IBKRStandardExporter:
         return df
     
     def _create_amt_matrix_sheet(self, multi_portfolio: MultiAccountPortfolio) -> pd.DataFrame:
-        """Create amount matrix sheet - same format as Matrix but showing amounts instead of weights."""
+        """Create amount matrix sheet - same format as Matrix but showing base currency amounts instead of weights."""
         
         # Collect all unique symbols and their metadata (same as Matrix)
         all_symbols = set()
@@ -383,7 +417,7 @@ class IBKRStandardExporter:
                 }
                 
                 positions_dict[symbol] = {
-                    'market_value': pos.get('Market_Value', 0)  # Use market value directly
+                    'market_value': pos.get('Market_Value', 0)  # Use market value in base currency
                 }
             
             # Calculate account summary values
@@ -423,7 +457,7 @@ class IBKRStandardExporter:
         for asset_class in sorted_asset_classes:
             remaining_symbols.extend(asset_classes[asset_class])
         
-        header_row1 = ['Portfolio Matrix (Amounts)', '', '', '', 'Asset class amount', '', '', '', 'Asset amount']
+        header_row1 = ['Portfolio Matrix (S$)', '', '', '', 'Asset class amount (S$)', '', '', '', 'Asset amount (S$)']
         
         # Add empty cells for remaining asset amount columns
         header_row1.extend([''] * (len(remaining_symbols)))  # Individual symbols
@@ -459,19 +493,27 @@ class IBKRStandardExporter:
         matrix_rows.append(asset_class_row)
         
         # Row 5: Column headers
-        column_headers = ['Account', 'Net Liquidation Value', 'Gross/NLV', 'Cash Amount', 'Total', 'Equity', 'Bond', 'Gold']
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash Amount (S$)', 'Total (S$)', 'Equity (S$)', 'Bond (S$)', 'Gold (S$)']
+        
+        # Add symbol codes as column headers with Total at the beginning  
+        if remaining_symbols:
+            column_headers.append('Total (S$)')  # Total for asset amount section
+            column_headers.extend(remaining_symbols)
+=======
+        column_headers = ['Account', 'Net Liquidation Value (S$)', 'Gross/NLV', 'Cash % (S$)', 'Total (S$)', 'Equity (S$)', 'Bond (S$)', 'Gold (S$)']
         
         # Add symbol codes as column headers with Total at the beginning
         if remaining_symbols:
-            column_headers.append('Total')  # Total for asset amount section
-            column_headers.extend(remaining_symbols)
+            column_headers.append('Total (S$)')  # Total for asset amount section
+            column_headers.extend([f'{symbol} (S$)' for symbol in remaining_symbols])
+>>>>>>> 9546905 (Fix currency conversion issue and add Amt_Matrix sheet)
         matrix_rows.append(column_headers)
         
         # Data rows: One row per account
         for account_id in sorted(account_data.keys()):
             data = account_data[account_id]
             
-            # Calculate asset class amounts
+            # Calculate asset class amounts in SGD
             equity_amount = 0
             bond_amount = 0 
             gold_amount = 0
@@ -501,13 +543,13 @@ class IBKRStandardExporter:
             # Build account row
             account_row = [
                 account_id,
-                data['nlv'],  # Net Liquidation Value
+                data['nlv'],  # Net Liquidation Value in SGD
                 (data['gross_position_value'] / data['nlv']) if data['nlv'] != 0 else 0,  # Ratio
-                data['cash'],  # Cash amount
+                data['cash'],  # Cash amount in SGD
                 equity_amount + bond_amount + gold_amount,  # Total asset class amounts
-                equity_amount,  # Equity amount
-                bond_amount,    # Bond amount
-                gold_amount     # Gold amount
+                equity_amount,  # Equity amount in SGD
+                bond_amount,    # Bond amount in SGD
+                gold_amount     # Gold amount in SGD
             ]
             
             # Add individual symbol amounts with total in first asset amount column
@@ -828,10 +870,13 @@ class IBKRStandardExporter:
             )
     
     def _format_summary_sheet(self, sheet, header_font, data_font, header_fill, thin_border):
-        """Apply formatting to Summary sheet."""
+        """Apply formatting to Summary sheet with freeze panes at B2."""
         
         if sheet.max_row == 0:
             return
+        
+        # Set freeze panes at B2 (freeze first row and first column)
+        sheet.freeze_panes = 'B2'
             
         # Format headers
         for col in range(1, sheet.max_column + 1):
@@ -908,11 +953,13 @@ ibkr_exporter = IBKRStandardExporter()
 def export_ibkr_portfolio_report(
     multi_portfolio: MultiAccountPortfolio,
     output_filename: Optional[str] = None,
-    include_metadata: bool = True
+    include_metadata: bool = True,
+    portfolio_service: Optional[Any] = None
 ) -> Path:
     """Convenience function to export IBKR standard portfolio report."""
     return ibkr_exporter.export_portfolio_report(
         multi_portfolio=multi_portfolio,
         output_filename=output_filename,
-        include_metadata=include_metadata
+        include_metadata=include_metadata,
+        portfolio_service=portfolio_service
     )

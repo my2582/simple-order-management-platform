@@ -589,27 +589,27 @@ def holdings(
             output_filename=output_filename,
             account_aliases=account_aliases  # Pass pre-fetched aliases instead of service
         )
+        
+        # Show summary
+        combined_summary = multi_portfolio.get_combined_summary()
+        
+        console.print(f"[green]✅ Holdings table download completed:[/green]")
+        console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
+        console.print(f"  • Total positions (including zero): {sum(len(s.positions) for s in multi_portfolio.snapshots)}")
+        console.print(f"  • Active positions (non-zero): {combined_summary['total_positions']}")
+        console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
+        console.print(f"  • Output: [cyan]{output_path}[/cyan]")
+        
+        # Show per-account summary
+        console.print(f"\n[bold blue]📋 Per-Account Holdings Summary:[/bold blue]")
+        for snapshot in multi_portfolio.snapshots:
+            account_summary = snapshot.get_positions_summary()
+            total_positions = len(snapshot.positions)
+            active_positions = len([p for p in snapshot.positions if p.position != 0])
             
-            # Show summary
-            combined_summary = multi_portfolio.get_combined_summary()
-            
-            console.print(f"[green]✅ Holdings table download completed:[/green]")
-            console.print(f"  • Accounts processed: {combined_summary['total_accounts']}")
-            console.print(f"  • Total positions (including zero): {sum(len(s.positions) for s in multi_portfolio.snapshots)}")
-            console.print(f"  • Active positions (non-zero): {combined_summary['total_positions']}")
-            console.print(f"  • Total portfolio value: ${combined_summary['total_portfolio_value']:,.2f}")
-            console.print(f"  • Output: [cyan]{output_path}[/cyan]")
-            
-            # Show per-account summary
-            console.print(f"\n[bold blue]📋 Per-Account Holdings Summary:[/bold blue]")
-            for snapshot in multi_portfolio.snapshots:
-                account_summary = snapshot.get_positions_summary()
-                total_positions = len(snapshot.positions)
-                active_positions = len([p for p in snapshot.positions if p.position != 0])
-                
-                console.print(f"  • Account {snapshot.account_id}: "
-                             f"{total_positions} total positions ({active_positions} active), "
-                             f"${account_summary['total_value']:,.2f} total value")
+            console.print(f"  • Account {snapshot.account_id}: "
+                         f"{total_positions} total positions ({active_positions} active), "
+                         f"${account_summary['total_value']:,.2f} total value")
 
     except ConnectionError as e:
         console.print(f"[red]❌ Connection Error: {e}[/red]")
